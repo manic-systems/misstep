@@ -3,21 +3,65 @@
 //! [`Report`] owns an error and its context strings. Context changes the rendered
 //! report, not [`Error::source`].
 
+#[cfg(feature = "backtrace")]
+use std::backtrace;
 use std::{
     error::Error,
     fmt::{Debug, Display, Formatter, Result as FmtResult},
     iter::FusedIterator,
+    result,
 };
 
-mod ext;
 mod fmt;
 #[macro_use]
 mod macros;
 
-pub use ext::ResultExt;
-
 /// A `Result` whose error defaults to [`Report`].
-pub type Result<T, E = Report> = std::result::Result<T, E>;
+pub type Result<T, E = Report> = result::Result<T, E>;
+
+/// Adds context to a [`Result`].
+pub trait ResultExt<T> {
+    /// Adds context to an error result.
+    ///
+    /// # Errors
+    ///
+    /// Converts the contained error into a [`Report`] and returns it with the context.
+    fn context<C>(self, context: C) -> Result<T>
+    where
+        C: Display;
+
+    /// Adds context from a closure.
+    ///
+    /// # Errors
+    ///
+    /// Converts the contained error into a [`Report`] and returns it with the context.
+    fn with_context<C, F>(self, context: F) -> Result<T>
+    where
+        C: Display,
+        F: FnOnce() -> C;
+}
+
+impl<T, E> ResultExt<T> for Result<T, E>
+where
+    E: Error + Send + Sync + 'static,
+{
+    #[inline]
+    fn context<C>(self, context: C) -> Result<T>
+    where
+        C: Display,
+    {
+        self.map_err(|error| Report::from_error(error).context(context))
+    }
+
+    #[inline]
+    fn with_context<C, F>(self, context: F) -> Result<T>
+    where
+        C: Display,
+        F: FnOnce() -> C,
+    {
+        self.map_err(|error| Report::from_error(error).with_context(context))
+    }
+}
 
 /// An error and the context collected while handling it.
 ///
@@ -25,12 +69,16 @@ pub type Result<T, E = Report> = std::result::Result<T, E>;
 /// original error and its sources.
 #[must_use]
 pub struct Report {
+    /// The original error.
     error: Box<dyn Error + Send + Sync + 'static>,
+    /// Context strings in insertion order.
     contexts: Vec<String>,
     #[cfg(feature = "backtrace")]
-    backtrace: Option<std::backtrace::Backtrace>,
+    /// The captured backtrace when capture succeeded.
+    backtrace: Option<Box<backtrace::Backtrace>>,
     #[cfg(feature = "spantrace")]
-    spantrace: Option<tracing_error::SpanTrace>,
+    /// The captured span trace when capture succeeded.
+    spantrace: Option<Box<tracing_error::SpanTrace>>,
 }
 
 impl Report {
@@ -67,13 +115,19 @@ impl Report {
 
     /// Builds a report from a displayable message.
     #[inline]
-    pub fn msg(message: impl Display) -> Self {
+    pub fn msg<D>(message: D) -> Self
+    where
+        D: Display,
+    {
         Self::new(OwnedMessageError(message.to_string()))
     }
 
     /// Adds context without changing the source chain.
     #[inline]
-    pub fn context(mut self, context: impl Display) -> Self {
+    pub fn context<D>(mut self, context: D) -> Self
+    where
+        D: Display,
+    {
         self.contexts.push(context.to_string());
         self
     }
@@ -93,6 +147,7 @@ impl Report {
 
     /// Returns the error at the start of the source chain.
     #[inline]
+    #[must_use]
     pub fn error(&self) -> &(dyn Error + 'static) {
         self.error.as_ref()
     }
@@ -101,6 +156,7 @@ impl Report {
     ///
     /// Formatters print the newest context first.
     #[inline]
+    #[must_use]
     pub fn contexts(&self) -> &[String] {
         &self.contexts
     }
@@ -117,6 +173,7 @@ impl Report {
 
     /// Finds `T` in the source chain.
     #[inline]
+    #[must_use]
     pub fn downcast_ref<T>(&self) -> Option<&T>
     where
         T: Error + 'static,
@@ -127,29 +184,31 @@ impl Report {
     /// Returns the captured backtrace, if capture was enabled and succeeded.
     #[cfg(feature = "backtrace")]
     #[inline]
-    pub fn backtrace(&self) -> Option<&std::backtrace::Backtrace> {
-        self.backtrace.as_ref()
+    #[must_use]
+    pub fn backtrace(&self) -> Option<&backtrace::Backtrace> {
+        self.backtrace.as_deref()
     }
 
     /// Returns the captured span trace, if one exists.
     #[cfg(feature = "spantrace")]
     #[inline]
+    #[must_use]
     pub fn spantrace(&self) -> Option<&tracing_error::SpanTrace> {
-        self.spantrace.as_ref()
+        self.spantrace.as_deref()
     }
 }
 
 impl Display for Report {
     #[inline]
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        crate::fmt::render_report(self, formatter)
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        fmt::render_report(self, f)
     }
 }
 
 impl Debug for Report {
     #[inline]
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        crate::fmt::render_report(self, formatter)
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        fmt::render_report(self, f)
     }
 }
 
@@ -170,12 +229,13 @@ impl From<Box<dyn Error + Send + Sync + 'static>> for Report {
 /// A non-allocating iterator over an error and its sources.
 #[derive(Clone)]
 #[must_use]
-pub struct Chain<'a> {
-    current: Option<&'a (dyn Error + 'static)>,
+pub struct Chain<'error> {
+    /// The next error returned by the iterator.
+    current: Option<&'error (dyn Error + 'static)>,
 }
 
-impl<'a> Iterator for Chain<'a> {
-    type Item = &'a (dyn Error + 'static);
+impl<'error> Iterator for Chain<'error> {
+    type Item = &'error (dyn Error + 'static);
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -188,27 +248,30 @@ impl<'a> Iterator for Chain<'a> {
 impl FusedIterator for Chain<'_> {}
 
 #[derive(Debug)]
+/// An owned string exposed as an error.
 struct OwnedMessageError(String);
 
 impl Display for OwnedMessageError {
     #[inline]
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FmtResult {
-        formatter.write_str(&self.0)
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(&self.0)
     }
 }
 
 impl Error for OwnedMessageError {}
 
 #[cfg(feature = "backtrace")]
-fn capture_backtrace() -> Option<std::backtrace::Backtrace> {
-    let backtrace = std::backtrace::Backtrace::capture();
-    (backtrace.status() == std::backtrace::BacktraceStatus::Captured).then_some(backtrace)
+/// Captures an enabled backtrace.
+fn capture_backtrace() -> Option<Box<backtrace::Backtrace>> {
+    let backtrace = backtrace::Backtrace::capture();
+    (backtrace.status() == backtrace::BacktraceStatus::Captured).then(|| Box::new(backtrace))
 }
 
 #[cfg(feature = "spantrace")]
-fn capture_spantrace() -> Option<tracing_error::SpanTrace> {
+/// Captures an enabled span trace.
+fn capture_spantrace() -> Option<Box<tracing_error::SpanTrace>> {
     let spantrace = tracing_error::SpanTrace::capture();
-    (spantrace.status() == tracing_error::SpanTraceStatus::CAPTURED).then_some(spantrace)
+    (spantrace.status() == tracing_error::SpanTraceStatus::CAPTURED).then(|| Box::new(spantrace))
 }
 
 /// Installs a panic hook that writes a report before the prior hook runs.
@@ -217,42 +280,53 @@ fn capture_spantrace() -> Option<tracing_error::SpanTrace> {
 /// process-wide panic hook, so call it once during startup.
 #[cfg(feature = "panic-hook")]
 pub mod panic_hook {
-    use std::{io::Write, panic::PanicHookInfo};
+    use std::{
+        io::{self, Write as _},
+        panic::{self, PanicHookInfo},
+    };
 
     /// Installs the reporting hook and then calls the hook it replaced.
+    #[inline]
     pub fn install() {
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
+        let previous = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
             let report = crate::Report::msg(panic_message(info));
-            {
-                let mut stderr = std::io::stderr().lock();
-                let _ = writeln!(stderr, "{report:?}");
-            }
+            let mut stderr = io::stderr().lock();
+            drop(writeln!(stderr, "{report}"));
+            drop(stderr);
+
             previous(info);
         }));
     }
 
+    /// Formats a panic payload and its source location.
     fn panic_message(info: &PanicHookInfo<'_>) -> String {
-        let payload = if let Some(message) = info.payload().downcast_ref::<&str>() {
-            *message
-        } else if let Some(message) = info.payload().downcast_ref::<String>() {
-            message.as_str()
-        } else {
-            "non-string panic payload"
-        };
+        let payload = info.payload().downcast_ref::<&str>().map_or_else(
+            || {
+                info.payload()
+                    .downcast_ref::<String>()
+                    .map_or("non-string panic payload", |message| message.as_str())
+            },
+            |message| *message,
+        );
 
-        match info.location() {
-            Some(location) => format!(
-                "panic at {}:{}:{}: {payload}",
-                location.file(),
-                location.line(),
-                location.column()
-            ),
-            None => format!("panic: {payload}"),
-        }
+        info.location().map_or_else(
+            || format!("panic: {payload}"),
+            |location| {
+                format!(
+                    "panic at {}:{}:{}: {payload}",
+                    location.file(),
+                    location.line(),
+                    location.column()
+                )
+            },
+        )
     }
 }
 
 /// Installs the `panic-hook` feature's process-wide panic hook.
 #[cfg(feature = "panic-hook")]
-pub use panic_hook::install as install_panic_hook;
+#[inline]
+pub fn install_panic_hook() {
+    panic_hook::install();
+}

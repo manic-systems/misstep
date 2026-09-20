@@ -1,20 +1,21 @@
 use std::cell::Cell;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
+use std::result;
 
-use misstep::{Report, Result, ResultExt};
+use misstep::{Report, Result, ResultExt as _};
 
 #[derive(Debug)]
 enum NestedError {
     Leaf,
     Wrap {
         label: &'static str,
-        source: Box<NestedError>,
+        source: Box<Self>,
     },
 }
 
 impl NestedError {
-    fn leaf() -> Self {
+    const fn leaf() -> Self {
         Self::Leaf
     }
 
@@ -27,19 +28,19 @@ impl NestedError {
 }
 
 impl Display for NestedError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Leaf => formatter.write_str("leaf"),
-            Self::Wrap { label, .. } => formatter.write_str(label),
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Leaf => f.write_str("leaf"),
+            Self::Wrap { label, .. } => f.write_str(label),
         }
     }
 }
 
 impl Error for NestedError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
+        match *self {
             Self::Leaf => None,
-            Self::Wrap { source, .. } => Some(source.as_ref()),
+            Self::Wrap { ref source, .. } => Some(source.as_ref()),
         }
     }
 }
@@ -48,8 +49,8 @@ impl Error for NestedError {
 struct TypedError;
 
 impl Display for TypedError {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str("typed failure")
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str("typed failure")
     }
 }
 
@@ -117,24 +118,25 @@ fn context_is_rendered_and_original_error_can_be_downcast() {
 
 #[test]
 fn result_ext_with_context_is_lazy() {
-    let calls = Cell::new(0);
+    let calls = Cell::new(0_u8);
 
-    let success: std::result::Result<_, TypedError> = Ok(7);
+    let success: result::Result<_, TypedError> = Ok(7_i32);
     let value = success.with_context(|| {
-        calls.set(calls.get() + 1);
+        calls.set(calls.get() + 1_u8);
         "unused context"
     });
-    assert_eq!(value.expect("success should remain successful"), 7);
-    assert_eq!(calls.get(), 0);
+    assert_eq!(value.ok(), Some(7_i32));
+    assert_eq!(calls.get(), 0_u8);
 
-    let failure: std::result::Result<(), TypedError> = Err(TypedError);
-    let report = failure
-        .with_context(|| {
-            calls.set(calls.get() + 1);
-            "operation failed"
-        })
-        .expect_err("failure should become a report");
-    assert_eq!(calls.get(), 1);
+    let failure: result::Result<(), TypedError> = Err(TypedError);
+    let result = failure.with_context(|| {
+        calls.set(calls.get() + 1_u8);
+        "operation failed"
+    });
+    assert!(result.is_err(), "failure should become a report");
+    let Err(report) = result else { return };
+
+    assert_eq!(calls.get(), 1_u8);
     assert!(report.to_string().contains("operation failed"));
 }
 
@@ -153,43 +155,59 @@ fn ensure_result(calls: &Cell<u8>) -> Result<(), Report> {
     Ok(())
 }
 
-fn bail_into_boxed_error() -> std::result::Result<(), Box<dyn Error + Send + Sync>> {
+fn bail_into_boxed_error() -> result::Result<(), Box<dyn Error + Send + Sync>> {
     misstep::bail!("boxed failure");
 }
 
-fn ensure_into_boxed_error() -> std::result::Result<(), Box<dyn Error + Send + Sync>> {
+fn ensure_into_boxed_error() -> result::Result<(), Box<dyn Error + Send + Sync>> {
     misstep::ensure!(false, "boxed condition failed");
     Ok(())
 }
 
 #[test]
 fn bail_and_ensure_convert_reports_to_boxed_errors() {
-    let bail_error = bail_into_boxed_error().expect_err("bail should return a boxed error");
+    let bail_result = bail_into_boxed_error();
+    assert!(bail_result.is_err(), "bail should return a boxed error");
+    let Err(bail_error) = bail_result else { return };
+
     assert!(bail_error.to_string().contains("boxed failure"));
 
-    let ensure_error = ensure_into_boxed_error().expect_err("ensure should return a boxed error");
+    let ensure_result = ensure_into_boxed_error();
+    assert!(ensure_result.is_err(), "ensure should return a boxed error");
+    let Err(ensure_error) = ensure_result else {
+        return;
+    };
+
     assert!(ensure_error.to_string().contains("boxed condition failed"));
 }
 
 #[test]
 fn result_ext_context_accepts_borrowed_string_slice() {
     let context = String::from("borrowed operation context");
-    let failure: std::result::Result<(), TypedError> = Err(TypedError);
+    let failure: result::Result<(), TypedError> = Err(TypedError);
 
-    let report = failure
-        .context(context.as_str())
-        .expect_err("failure should become a report");
+    let result = failure.context(context.as_str());
+    assert!(result.is_err(), "failure should become a report");
+    let Err(report) = result else { return };
 
     assert!(report.to_string().contains("borrowed operation context"));
 }
 
 #[test]
 fn bail_and_ensure_return_reports_and_ensure_evaluates_once() {
-    let bail_error = bail_result().expect_err("bail should return an error");
+    let bail_result = bail_result();
+    assert!(bail_result.is_err(), "bail should return an error");
+    let Err(bail_error) = bail_result else { return };
+
     assert!(bail_error.to_string().contains("explicit failure"));
 
-    let calls = Cell::new(0);
-    let ensure_error = ensure_result(&calls).expect_err("ensure should return an error");
-    assert_eq!(calls.get(), 1);
+    let calls = Cell::new(0_u8);
+    let ensure_result = ensure_result(&calls);
+    assert!(ensure_result.is_err(), "ensure should return an error");
+    let Err(ensure_error) = ensure_result else {
+        return;
+    };
+
+    assert_eq!(calls.get(), 1_u8);
     assert!(ensure_error.to_string().contains("condition failed"));
 }

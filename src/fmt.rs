@@ -5,17 +5,17 @@
 use std::{error::Error, fmt};
 
 #[cfg(feature = "color")]
-use yansi::Paint;
+use yansi::Paint as _;
 
 use crate::Report;
 
 /// Formats a report for both `Display` and `Debug`.
 ///
 /// Both traits call this function, so they produce the same text.
-pub(crate) fn render_report(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+pub fn render_report(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
     #[cfg(feature = "pretty")]
     {
-        return render_pretty(report, formatter);
+        render_pretty(report, formatter)
     }
 
     #[cfg(not(feature = "pretty"))]
@@ -54,11 +54,11 @@ fn render_pretty(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Re
         write_heading(formatter, "Caused by")?;
         formatter.write_str(":")?;
 
-        let mut index = 0;
+        let mut index = 0_i32;
         while let Some(error) = cause {
             write!(formatter, "\n  {index}: {error}")?;
             cause = error.source();
-            index += 1;
+            index += 1_i32;
         }
     }
 
@@ -84,12 +84,14 @@ fn render_pretty(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Re
 /// Writes the captured backtrace section.
 #[cfg(all(feature = "pretty", feature = "backtrace"))]
 fn render_backtrace(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    use std::backtrace;
+
     let Some(backtrace) = report.backtrace() else {
         return Ok(());
     };
 
     // `Backtrace::capture` returns a value when backtraces are off. Omit it.
-    if backtrace.status() != std::backtrace::BacktraceStatus::Captured {
+    if backtrace.status() != backtrace::BacktraceStatus::Captured {
         return Ok(());
     }
 
@@ -116,7 +118,7 @@ fn render_spantrace(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt:
 fn write_error(formatter: &mut fmt::Formatter<'_>, error: &(dyn Error + 'static)) -> fmt::Result {
     #[cfg(feature = "color")]
     {
-        return write!(formatter, "{}", error.red());
+        write!(formatter, "{}", error.red())
     }
 
     #[cfg(not(feature = "color"))]
@@ -128,7 +130,7 @@ fn write_error(formatter: &mut fmt::Formatter<'_>, error: &(dyn Error + 'static)
 fn write_heading(formatter: &mut fmt::Formatter<'_>, heading: &str) -> fmt::Result {
     #[cfg(feature = "color")]
     {
-        return write!(formatter, "{}", heading.bold());
+        write!(formatter, "{}", heading.bold())
     }
 
     #[cfg(not(feature = "color"))]
