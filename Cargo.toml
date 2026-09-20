@@ -1,17 +1,17 @@
 [package]
 name = "misstep"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.95.0"
 description = "Rust error reports with compile-time-selected formatting"
 license = "EUPL-1.2"
 repository = "https://git.notashelf.dev/notashelf/misstep"
 keywords = [
-	"error",
-	"error-handling",
-	"error-reporting",
-	"backtrace",
-	"tracing",
+  "error",
+  "error-handling",
+  "error-reporting",
+  "backtrace",
+  "tracing",
 ]
 categories = ["rust-patterns"]
 autobins = false
