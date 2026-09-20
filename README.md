@@ -4,8 +4,15 @@ Light weight crate reports Rust errors without a required dependency or a global
 formatter hook.
 
 `Report` owns the error and keeps context strings beside it. Context appears in
-the output, but it does not alter `Error::source()`. Use `Report::chain()` when
+the output, but it does not alter the source chain. Use `Report::chain()` when
 you need to walk the original error chain.
+
+`Report` does not implement `Error`. That is what allows the blanket
+`From<E: Error + Send + Sync + 'static>` conversion, so `?` promotes any error
+into a report. A boxed error goes through `Report::from_boxed()`, since a `From`
+impl for it would overlap the blanket one. Going the other way, a report
+converts into `Box<dyn Error>`, so `bail!` still works in a function that owes
+one.
 
 ## Features
 
@@ -24,7 +31,7 @@ their data without `pretty`, but do not print it.
 ## Usage
 
 ```rust
-use misstep::{bail, ensure, Result, ResultExt};
+use misstep::{bail, ensure, OptionExt, Result, ResultExt};
 
 fn read_configuration(path: &str) -> Result<String> {
     let configuration = std::fs::read_to_string(path)
@@ -34,10 +41,21 @@ fn read_configuration(path: &str) -> Result<String> {
 }
 
 fn run() -> Result<()> {
-    let configuration = read_configuration("config.toml")?;
-    if configuration.starts_with("disabled") {
-        bail!("configuration disabled this service");
+    let configuration = read_configuration("config.toml")
+        .context("starting the service")?;
+
+    let port: u16 = configuration
+        .strip_prefix("port=")
+        .context("configuration has no port")?
+        .parse()?;
+
+    if port == 0 {
+        bail!("port 0 is not routable");
     }
     Ok(())
 }
 ```
+
+`ResultExt` adds context to any `Result`. When the error is already a `Report`
+the context joins the existing list rather than wrapping a report in a report.
+`OptionExt` turns a `None` into a report whose message is the context.

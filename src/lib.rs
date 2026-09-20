@@ -1,7 +1,10 @@
 //! Errors with context that stays outside the source chain.
 //!
 //! [`Report`] owns an error and its context strings. Context changes the rendered
-//! report, not [`Error::source`].
+//! report, not the source chain reached through [`Report::chain`].
+//!
+//! `Report` deliberately does not implement [`Error`], which is what lets the
+//! blanket `From` conversion exist and makes `?` work on any error type.
 
 #[cfg(feature = "backtrace")]
 use std::backtrace;
@@ -63,10 +66,75 @@ where
     }
 }
 
+impl<T> ResultExt<T> for Result<T, Report> {
+    #[inline]
+    fn context<C>(self, context: C) -> Self
+    where
+        C: Display,
+    {
+        self.map_err(|report| report.context(context))
+    }
+
+    #[inline]
+    fn with_context<C, F>(self, context: F) -> Self
+    where
+        C: Display,
+        F: FnOnce() -> C,
+    {
+        self.map_err(|report| report.with_context(context))
+    }
+}
+
+/// Turns a missing [`Option`] value into a [`Report`].
+pub trait OptionExt<T> {
+    /// Reports [`None`] with the context as the error message.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Report`] carrying `context` when the option is [`None`].
+    fn context<C>(self, context: C) -> Result<T>
+    where
+        C: Display;
+
+    /// Reports [`None`] with a message from a closure.
+    ///
+    /// The closure runs only when the option is [`None`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`Report`] carrying the closure's message when the option is [`None`].
+    fn with_context<C, F>(self, context: F) -> Result<T>
+    where
+        C: Display,
+        F: FnOnce() -> C;
+}
+
+impl<T> OptionExt<T> for Option<T> {
+    #[inline]
+    fn context<C>(self, context: C) -> Result<T>
+    where
+        C: Display,
+    {
+        self.ok_or_else(|| Report::msg(context))
+    }
+
+    #[inline]
+    fn with_context<C, F>(self, context: F) -> Result<T>
+    where
+        C: Display,
+        F: FnOnce() -> C,
+    {
+        self.ok_or_else(|| Report::msg(context()))
+    }
+}
+
 /// An error and the context collected while handling it.
 ///
 /// Context does not wrap the error. Downcasts and [`Report::chain`] see only the
 /// original error and its sources.
+///
+/// This type does not implement [`Error`]. Returning it from a function that
+/// owes a `Box<dyn Error>` still works through the [`From`] impl below.
 #[must_use]
 pub struct Report {
     /// The original error.
@@ -212,17 +280,45 @@ impl Debug for Report {
     }
 }
 
-impl Error for Report {
+impl<E> From<E> for Report
+where
+    E: Error + Send + Sync + 'static,
+{
     #[inline]
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(self.error())
+    fn from(error: E) -> Self {
+        Self::new(error)
     }
 }
 
-impl From<Box<dyn Error + Send + Sync + 'static>> for Report {
+impl From<Report> for Box<dyn Error + Send + Sync + 'static> {
     #[inline]
-    fn from(error: Box<dyn Error + Send + Sync + 'static>) -> Self {
-        Self::from_boxed(error)
+    fn from(report: Report) -> Self {
+        Box::new(BoxedReport(report))
+    }
+}
+
+impl From<Report> for Box<dyn Error + 'static> {
+    #[inline]
+    fn from(report: Report) -> Self {
+        Box::new(BoxedReport(report))
+    }
+}
+
+/// Gives a [`Report`] an [`Error`] impl for the boxing conversions.
+#[derive(Debug)]
+struct BoxedReport(Report);
+
+impl Display for BoxedReport {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl Error for BoxedReport {
+    #[inline]
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(self.0.error())
     }
 }
 
