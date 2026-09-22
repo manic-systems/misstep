@@ -7,7 +7,7 @@
 #[macro_export]
 macro_rules! report {
     ($message:literal $(,)?) => {
-        $crate::Report::msg($message)
+        $crate::Report::msg(::core::format_args!($message))
     };
     ($format:literal, $($arguments:tt)+) => {
         $crate::Report::msg(::core::format_args!($format, $($arguments)+))
@@ -24,7 +24,7 @@ macro_rules! report {
 #[macro_export]
 macro_rules! bail {
     ($($arguments:tt)+) => {
-        return ::core::result::Result::Err($crate::report!($($arguments)+).into());
+        return ::core::result::Result::Err($crate::report!($($arguments)+).into())
     };
 }
 
