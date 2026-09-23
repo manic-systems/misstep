@@ -396,7 +396,7 @@ pub mod panic_hook {
     pub fn install() {
         let previous = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
-            let report = crate::Report::msg(panic_message(info));
+            let report = panic_report(info);
             let mut stderr = io::stderr().lock();
             drop(writeln!(stderr, "{report:?}"));
             drop(stderr);
@@ -405,26 +405,26 @@ pub mod panic_hook {
         }));
     }
 
-    /// Formats a panic payload and its source location.
-    fn panic_message(info: &PanicHookInfo<'_>) -> String {
+    /// Builds a report from a panic payload and its source location.
+    fn panic_report(info: &PanicHookInfo<'_>) -> crate::Report {
         let payload = info.payload().downcast_ref::<&str>().map_or_else(
             || {
                 info.payload()
                     .downcast_ref::<String>()
-                    .map_or("non-string panic payload", |message| message.as_str())
+                    .map_or("non-string panic payload", String::as_str)
             },
             |message| *message,
         );
 
         info.location().map_or_else(
-            || format!("panic: {payload}"),
+            || crate::Report::msg(format_args!("panic: {payload}")),
             |location| {
-                format!(
+                crate::Report::msg(format_args!(
                     "panic at {}:{}:{}: {payload}",
                     location.file(),
                     location.line(),
                     location.column()
-                )
+                ))
             },
         )
     }
