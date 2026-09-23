@@ -56,12 +56,22 @@ impl Display for TypedError {
 
 impl Error for TypedError {}
 
-#[cfg(not(feature = "pretty"))]
+#[cfg(not(feature = "color"))]
 #[test]
-fn display_and_debug_render_reports_identically() {
+fn display_renders_compact_report_with_newest_context_first() {
+    let report = Report::new(NestedError::wrap("root", NestedError::leaf()))
+        .context("inner")
+        .context("outer");
+
+    assert_eq!(format!("{report}"), "outer: inner: root: leaf");
+}
+
+#[cfg(all(not(feature = "pretty"), not(feature = "color")))]
+#[test]
+fn debug_matches_compact_display_without_pretty_formatting() {
     let report = Report::msg("failure").context("while processing");
 
-    assert_eq!(format!("{report}"), format!("{report:?}"));
+    assert_eq!(format!("{report:?}"), "while processing: failure");
 }
 
 #[cfg(feature = "pretty")]
@@ -81,6 +91,24 @@ fn pretty_formatting_renders_error_cause_and_context_sections() {
     assert!(debug.contains("root"));
     assert!(debug.contains("leaf"));
     assert!(debug.contains("while processing input"));
+}
+
+#[cfg(all(
+    feature = "pretty",
+    not(feature = "color"),
+    not(feature = "backtrace"),
+    not(feature = "spantrace")
+))]
+#[test]
+fn pretty_debug_renders_sections_in_order() {
+    let report = Report::new(NestedError::wrap("root", NestedError::leaf()))
+        .context("inner")
+        .context("outer");
+
+    assert_eq!(
+        format!("{report:?}"),
+        "Error:\n  root\n\nCaused by:\n  0: leaf\n\nContext:\n  0: outer\n  1: inner"
+    );
 }
 
 #[cfg(feature = "color")]

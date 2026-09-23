@@ -20,10 +20,8 @@ pub fn render_compact(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fm
 
     write_error(formatter, report.error())?;
 
-    let mut cause = report.error().source();
-    while let Some(error) = cause {
+    for error in report.chain().skip(1) {
         write!(formatter, ": {error}")?;
-        cause = error.source();
     }
 
     Ok(())
@@ -36,17 +34,14 @@ pub fn render_pretty(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt
     formatter.write_str(":\n  ")?;
     write_error(formatter, report.error())?;
 
-    let mut cause = report.error().source();
-    if cause.is_some() {
+    let mut causes = report.chain().skip(1).peekable();
+    if causes.peek().is_some() {
         formatter.write_str("\n\n")?;
         write_heading(formatter, "Caused by")?;
         formatter.write_str(":")?;
 
-        let mut index = 0_i32;
-        while let Some(error) = cause {
+        for (index, error) in causes.enumerate() {
             write!(formatter, "\n  {index}: {error}")?;
-            cause = error.source();
-            index += 1_i32;
         }
     }
 
