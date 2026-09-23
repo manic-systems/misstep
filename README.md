@@ -88,7 +88,10 @@ fn parse_port(port: &str) -> Result<u16> {
 }
 
 fn find_port(configuration: &str) -> Result<u16> {
-    let port = configuration.split('=').last().context("no port in configuration")?;
+    let port = configuration
+        .split_once('=')
+        .map(|(_, port)| port)
+        .context("no port in configuration")?;
     parse_port(port)
 }
 ```
