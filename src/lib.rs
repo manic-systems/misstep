@@ -269,14 +269,20 @@ impl Report {
 impl Display for Report {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        fmt::render_report(self, f)
+        fmt::render_compact(self, f)
     }
 }
 
 impl Debug for Report {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        fmt::render_report(self, f)
+        #[cfg(feature = "pretty")]
+        {
+            fmt::render_pretty(self, f)
+        }
+
+        #[cfg(not(feature = "pretty"))]
+        fmt::render_compact(self, f)
     }
 }
 
@@ -383,12 +389,16 @@ pub mod panic_hook {
 
     /// Installs the reporting hook and then calls the hook it replaced.
     #[inline]
+    #[expect(
+        clippy::use_debug,
+        reason = "a panic prints the full report, which `pretty` renders through Debug"
+    )]
     pub fn install() {
         let previous = panic::take_hook();
         panic::set_hook(Box::new(move |info| {
             let report = crate::Report::msg(panic_message(info));
             let mut stderr = io::stderr().lock();
-            drop(writeln!(stderr, "{report}"));
+            drop(writeln!(stderr, "{report:?}"));
             drop(stderr);
 
             previous(info);

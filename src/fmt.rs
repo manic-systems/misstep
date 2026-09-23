@@ -1,5 +1,7 @@
-//! Formatting shared by [`core::fmt::Display`] and [`core::fmt::Debug`].
+//! Formatting for [`core::fmt::Display`] and [`core::fmt::Debug`].
 //!
+//! `Display` always writes the compact form so a report can sit inside a larger
+//! message. `Debug` writes the multi-section form under the `pretty` feature.
 //! The formatter writes directly to the caller's buffer. It has no global state.
 
 use std::{error::Error, fmt};
@@ -9,22 +11,8 @@ use yansi::Paint as _;
 
 use crate::Report;
 
-/// Formats a report for both `Display` and `Debug`.
-///
-/// Both traits call this function, so they produce the same text.
-pub fn render_report(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-    #[cfg(feature = "pretty")]
-    {
-        render_pretty(report, formatter)
-    }
-
-    #[cfg(not(feature = "pretty"))]
-    render_compact(report, formatter)
-}
-
 /// Writes the compact report format.
-#[cfg(not(feature = "pretty"))]
-fn render_compact(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+pub fn render_compact(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
     // The newest context describes the outermost operation.
     for context in report.contexts().iter().rev() {
         write!(formatter, "{context}: ")?;
@@ -43,7 +31,7 @@ fn render_compact(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::R
 
 /// Writes the multi-section report format.
 #[cfg(feature = "pretty")]
-fn render_pretty(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+pub fn render_pretty(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
     write_heading(formatter, "Error")?;
     formatter.write_str(":\n  ")?;
     write_error(formatter, report.error())?;

@@ -21,17 +21,20 @@ converts into `Box<dyn Error>`, so `bail!` still works in a function that owes
 one.
 
 Formatting writes directly to the caller's buffer and holds no global state.
-`Display` and `Debug` render the same text: either a compact one-line form, or a
-multi-section form under the `pretty` feature. Feature flags select the format
-at compile time, so there is no runtime formatter to register and no hook other
-code can silently replace.
+`Display` always renders a compact one-line form, so a report can sit inside a
+log line or a larger message. `Debug` matches it by default. Under the `pretty`
+feature, `Debug` renders a multi-section form instead, which is what Rust prints
+for an error returned from `main`. Feature flags select the format at compile
+time, so there is no runtime formatter to register and no hook other code can
+silently replace.
 
 ## Features
 
 - `color` adds ANSI color with `yansi`.
 - `backtrace` captures `std::backtrace::Backtrace` when a report is created.
 - `spantrace` captures `tracing_error::SpanTrace` when a report is created.
-- `pretty` prints error, cause, context, and available trace sections.
+- `pretty` renders `Debug` as error, cause, context, and available trace
+  sections.
 - `panic-hook` adds `install_panic_hook()`. The hook prints a report, then calls
   the hook that was already installed.
 

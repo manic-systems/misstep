@@ -56,6 +56,7 @@ impl Display for TypedError {
 
 impl Error for TypedError {}
 
+#[cfg(not(feature = "pretty"))]
 #[test]
 fn display_and_debug_render_reports_identically() {
     let report = Report::msg("failure").context("while processing");
@@ -72,25 +73,23 @@ fn pretty_formatting_renders_error_cause_and_context_sections() {
     let display = format!("{report}");
     let debug = format!("{report:?}");
 
-    assert_eq!(display, debug);
-    assert!(display.contains("Error"));
-    assert!(display.contains("Caused by"));
-    assert!(display.contains("Context"));
-    assert!(display.contains("root"));
-    assert!(display.contains("leaf"));
+    assert!(!display.contains('\n'));
     assert!(display.contains("while processing input"));
+    assert!(debug.contains("Error"));
+    assert!(debug.contains("Caused by"));
+    assert!(debug.contains("Context"));
+    assert!(debug.contains("root"));
+    assert!(debug.contains("leaf"));
+    assert!(debug.contains("while processing input"));
 }
 
 #[cfg(feature = "color")]
 #[test]
-fn color_formatting_uses_ansi_and_matches_debug() {
+fn color_formatting_uses_ansi() {
     let report = Report::msg("failure");
 
-    let display = format!("{report}");
-    let debug = format!("{report:?}");
-
-    assert_eq!(display, debug);
-    assert!(display.contains("\x1b["));
+    assert!(format!("{report}").contains("\x1b["));
+    assert!(format!("{report:?}").contains("\x1b["));
 }
 
 #[test]
