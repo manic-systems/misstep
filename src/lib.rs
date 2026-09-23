@@ -329,7 +329,7 @@ impl Error for BoxedReport {
 }
 
 /// A non-allocating iterator over an error and its sources.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[must_use]
 pub struct Chain<'error> {
     /// The next error returned by the iterator.
