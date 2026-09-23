@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::result;
 
-use misstep::{Report, Result, ResultExt as _};
+use misstep::{OptionExt as _, Report, Result, ResultExt as _};
 
 #[derive(Debug)]
 enum NestedError {
@@ -165,6 +165,29 @@ fn result_ext_with_context_is_lazy() {
 
     assert_eq!(calls.get(), 1_u8);
     assert!(report.to_string().contains("operation failed"));
+}
+
+#[test]
+fn option_ext_with_context_is_lazy() {
+    let calls = Cell::new(0_u8);
+
+    let value = Some(7_i32).with_context(|| {
+        calls.set(calls.get() + 1_u8);
+        "unused context"
+    });
+    assert_eq!(value.ok(), Some(7_i32));
+    assert_eq!(calls.get(), 0_u8);
+
+    let missing: Option<i32> = None;
+    let result = missing.with_context(|| {
+        calls.set(calls.get() + 1_u8);
+        "missing value"
+    });
+    assert!(result.is_err(), "absence should become a report");
+    let Err(report) = result else { return };
+
+    assert_eq!(calls.get(), 1_u8);
+    assert!(report.to_string().contains("missing value"));
 }
 
 fn bail_result() -> Result<(), Report> {
