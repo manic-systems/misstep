@@ -1,6 +1,6 @@
 [package]
 name = "misstep"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.95.0"
 description = "Rust error reports with compile-time-selected formatting"
@@ -30,9 +30,6 @@ panic-hook = []
 yansi         = { version = "1.0.1", default-features = false, optional = true }
 tracing-error = { version = "0.2.1", default-features = false, optional = true }
 
-[dev-dependencies]
-criterion  = "0.8.2"
-color-eyre = { version = "0.6.5", default-features = false }
 
 [lints.rust]
 unknown_lints = "allow"
