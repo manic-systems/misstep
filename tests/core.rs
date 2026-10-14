@@ -85,7 +85,7 @@ fn pretty_formatting_renders_error_cause_and_context_sections() {
 
     assert!(!display.contains('\n'));
     assert!(display.contains("while processing input"));
-    assert!(debug.contains("Error"));
+    assert!(!debug.contains("Error"));
     assert!(debug.contains("Caused by"));
     assert!(debug.contains("Context"));
     assert!(debug.contains("root"));
@@ -107,7 +107,7 @@ fn pretty_debug_renders_sections_in_order() {
 
     assert_eq!(
         format!("{report:?}"),
-        "Error:\n  root\n\nCaused by:\n  0: leaf\n\nContext:\n  0: outer\n  1: inner"
+        "root\n\nCaused by:\n  0: leaf\n\nContext:\n  0: outer\n  1: inner"
     );
 }
 

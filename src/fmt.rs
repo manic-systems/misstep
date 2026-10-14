@@ -30,8 +30,6 @@ pub fn render_compact(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fm
 /// Writes the multi-section report format.
 #[cfg(feature = "pretty")]
 pub fn render_pretty(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-    write_heading(formatter, "Error")?;
-    formatter.write_str(":\n  ")?;
     write_error(formatter, report.error())?;
 
     let mut causes = report.chain().skip(1).peekable();
