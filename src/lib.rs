@@ -16,6 +16,7 @@ use std::{
         Result as FmtResult,
     },
     iter::FusedIterator,
+    ptr::NonNull,
     result,
 };
 
@@ -144,16 +145,112 @@ impl<T> OptionExt<T> for Option<T> {
 /// owes a `Box<dyn Error>` still works through the [`From`] impl below.
 #[must_use]
 pub struct Report {
-    /// The original error.
-    error:     Box<dyn Error + Send + Sync + 'static>,
+    /// The header of an [`Inner`] whose error type the header's vtable knows.
+    /// One thin pointer keeps `Result<T, Report>` returnable in registers.
+    header: NonNull<Header>,
+}
+
+// SAFETY: Every constructor requires an `E: Send + Sync` error, and `Header`
+// is `Send + Sync`, so the allocation moves and shares like a `Box`.
+unsafe impl Send for Report {}
+// SAFETY: See the `Send` impl.
+unsafe impl Sync for Report {}
+
+const _: () = {
+    const fn assert_send_sync<T>()
+    where
+        T: Send + Sync,
+    {
+    }
+    assert_send_sync::<Header>();
+};
+
+/// The state every report has, whatever its error type.
+struct Header {
+    /// Operations that need the concrete error type.
+    vtable:    &'static Vtable,
     /// Context strings in insertion order.
     contexts:  Vec<String>,
-    #[cfg(feature = "backtrace")]
     /// The captured backtrace when capture succeeded.
-    backtrace: Option<Box<backtrace::Backtrace>>,
-    #[cfg(feature = "spantrace")]
+    #[cfg(feature = "backtrace")]
+    backtrace: Option<backtrace::Backtrace>,
     /// The captured span trace when capture succeeded.
-    spantrace: Option<Box<tracing_error::SpanTrace>>,
+    #[cfg(feature = "spantrace")]
+    spantrace: Option<tracing_error::SpanTrace>,
+}
+
+/// The single allocation behind a [`Report`].
+///
+/// `repr(C)` keeps `header` at offset zero for every `E`, so a pointer to an
+/// `Inner<E>` is also a pointer to its [`Header`].
+#[repr(C)]
+struct Inner<E> {
+    /// State that does not depend on `E`.
+    header: Header,
+    /// The original error.
+    error:  E,
+}
+
+/// Operations on an [`Inner`] whose error type was erased.
+struct Vtable {
+    /// Returns the error as a trait object.
+    error: unsafe fn(NonNull<Header>) -> NonNull<dyn Error + Send + Sync + 'static>,
+    /// Drops the error and the header and frees the allocation.
+    drop:  unsafe fn(NonNull<Header>),
+}
+
+/// A caller's boxed error, stored as-is since `Box<dyn Error>` is not an
+/// [`Error`].
+struct BoxedError(Box<dyn Error + Send + Sync + 'static>);
+
+/// Returns the error of an `Inner<E>`.
+///
+/// # Safety
+///
+/// `header` must point to the header of a live `Inner<E>`.
+unsafe fn error_of<E>(header: NonNull<Header>) -> NonNull<dyn Error + Send + Sync + 'static>
+where
+    E: Error + Send + Sync + 'static,
+{
+    // SAFETY: The caller guarantees `header` starts a live `Inner<E>`.
+    let error: &(dyn Error + Send + Sync + 'static) =
+        unsafe { &(*header.cast::<Inner<E>>().as_ptr()).error };
+    NonNull::from(error)
+}
+
+/// Returns the error inside an `Inner<BoxedError>`.
+///
+/// # Safety
+///
+/// `header` must point to the header of a live `Inner<BoxedError>`.
+unsafe fn boxed_error_of(header: NonNull<Header>) -> NonNull<dyn Error + Send + Sync + 'static> {
+    // SAFETY: The caller guarantees `header` starts a live `Inner<BoxedError>`.
+    let boxed = unsafe { &(*header.cast::<Inner<BoxedError>>().as_ptr()).error };
+    NonNull::from(boxed.0.as_ref())
+}
+
+/// Drops and frees an `Inner<E>`.
+///
+/// # Safety
+///
+/// `header` must point to the header of an `Inner<E>` allocated by
+/// [`Report::from_inner`], and nothing may use it afterwards.
+unsafe fn drop_inner<E>(header: NonNull<Header>) {
+    // SAFETY: The caller guarantees the allocation is an `Inner<E>` from a
+    // leaked `Box` and that this is its last use.
+    drop(unsafe { Box::from_raw(header.cast::<Inner<E>>().as_ptr()) });
+}
+
+impl Drop for Report {
+    #[inline]
+    fn drop(&mut self) {
+        let drop_inner = self.header().vtable.drop;
+        // SAFETY: The vtable matches the allocation, and the report is gone
+        // after this call.
+        unsafe {
+            drop_inner(self.header);
+        }
+    }
 }
 
 impl Report {
@@ -163,7 +260,15 @@ impl Report {
     where
         E: Error + Send + Sync + 'static,
     {
-        Self::from_boxed(Box::new(error))
+        let vtable = const {
+            &Vtable {
+                error: error_of::<E>,
+                drop:  drop_inner::<E>,
+            }
+        };
+
+        // SAFETY: Both vtable entries are instantiated for `E`.
+        unsafe { Self::from_inner(error, vtable) }
     }
 
     /// Calls [`Report::new`].
@@ -178,14 +283,57 @@ impl Report {
     /// Stores a boxed error in a new report.
     #[inline]
     pub fn from_boxed(error: Box<dyn Error + Send + Sync + 'static>) -> Self {
-        Self {
+        let vtable = const {
+            &Vtable {
+                error: boxed_error_of,
+                drop:  drop_inner::<BoxedError>,
+            }
+        };
+
+        // SAFETY: Both vtable entries are written for `BoxedError`.
+        unsafe { Self::from_inner(BoxedError(error), vtable) }
+    }
+
+    /// Allocates an `Inner<E>` and keeps a pointer to its header.
+    ///
+    /// # Safety
+    ///
+    /// Every entry of `vtable` must be written for an `Inner<E>`.
+    #[inline]
+    unsafe fn from_inner<E>(error: E, vtable: &'static Vtable) -> Self
+    where
+        E: Send + Sync + 'static,
+    {
+        let inner = Box::new(Inner {
+            header: Header {
+                vtable,
+                contexts: Vec::new(),
+                #[cfg(feature = "backtrace")]
+                backtrace: capture_backtrace(),
+                #[cfg(feature = "spantrace")]
+                spantrace: capture_spantrace(),
+            },
             error,
-            contexts: Vec::new(),
-            #[cfg(feature = "backtrace")]
-            backtrace: capture_backtrace(),
-            #[cfg(feature = "spantrace")]
-            spantrace: capture_spantrace(),
+        });
+
+        Self {
+            header: NonNull::from(Box::leak(inner)).cast(),
         }
+    }
+
+    /// Borrows the header.
+    #[inline]
+    const fn header(&self) -> &Header {
+        // SAFETY: The report owns a live allocation that starts with a header.
+        unsafe { self.header.as_ref() }
+    }
+
+    /// Mutably borrows the header.
+    #[inline]
+    const fn header_mut(&mut self) -> &mut Header {
+        // SAFETY: The report owns a live allocation that starts with a header,
+        // and `&mut self` makes this borrow unique.
+        unsafe { self.header.as_mut() }
     }
 
     /// Builds a report from a displayable message.
@@ -203,7 +351,7 @@ impl Report {
     where
         D: Display,
     {
-        self.contexts.push(context.to_string());
+        self.header_mut().contexts.push(context.to_string());
         self
     }
 
@@ -224,7 +372,12 @@ impl Report {
     #[inline]
     #[must_use]
     pub fn error(&self) -> &(dyn Error + 'static) {
-        self.error.as_ref()
+        let error_of = self.header().vtable.error;
+        // SAFETY: The vtable matches the allocation.
+        let error = unsafe { error_of(self.header) };
+        // SAFETY: The error lives inside the allocation, which `self` keeps
+        // alive and does not mutate while borrowed.
+        unsafe { error.as_ref() }
     }
 
     /// Returns context strings in the order callers added them.
@@ -233,7 +386,7 @@ impl Report {
     #[inline]
     #[must_use]
     pub fn contexts(&self) -> &[String] {
-        &self.contexts
+        &self.header().contexts
     }
 
     /// Walks the error and each of its sources.
@@ -260,16 +413,16 @@ impl Report {
     #[cfg(feature = "backtrace")]
     #[inline]
     #[must_use]
-    pub fn backtrace(&self) -> Option<&backtrace::Backtrace> {
-        self.backtrace.as_deref()
+    pub const fn backtrace(&self) -> Option<&backtrace::Backtrace> {
+        self.header().backtrace.as_ref()
     }
 
     /// Returns the captured span trace, if one exists.
     #[cfg(feature = "spantrace")]
     #[inline]
     #[must_use]
-    pub fn spantrace(&self) -> Option<&tracing_error::SpanTrace> {
-        self.spantrace.as_deref()
+    pub const fn spantrace(&self) -> Option<&tracing_error::SpanTrace> {
+        self.header().spantrace.as_ref()
     }
 }
 
@@ -371,16 +524,16 @@ impl Error for OwnedMessageError {}
 
 #[cfg(feature = "backtrace")]
 /// Captures an enabled backtrace.
-fn capture_backtrace() -> Option<Box<backtrace::Backtrace>> {
+fn capture_backtrace() -> Option<backtrace::Backtrace> {
     let backtrace = backtrace::Backtrace::capture();
-    (backtrace.status() == backtrace::BacktraceStatus::Captured).then(|| Box::new(backtrace))
+    (backtrace.status() == backtrace::BacktraceStatus::Captured).then_some(backtrace)
 }
 
 #[cfg(feature = "spantrace")]
 /// Captures an enabled span trace.
-fn capture_spantrace() -> Option<Box<tracing_error::SpanTrace>> {
+fn capture_spantrace() -> Option<tracing_error::SpanTrace> {
     let spantrace = tracing_error::SpanTrace::capture();
-    (spantrace.status() == tracing_error::SpanTraceStatus::CAPTURED).then(|| Box::new(spantrace))
+    (spantrace.status() == tracing_error::SpanTraceStatus::CAPTURED).then_some(spantrace)
 }
 
 /// Installs a panic hook that writes a report before the prior hook runs.
