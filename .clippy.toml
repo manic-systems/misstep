@@ -1,0 +1,12 @@
+msrv = "1.95.0" # must match Cargo.toml
+
+cognitive-complexity-threshold = 25
+excessive-nesting-threshold    = 7
+too-many-arguments-threshold   = 7
+too-many-lines-threshold       = 150
+
+allow-expect-in-tests           = true
+allow-indexing-slicing-in-tests = true
+allow-panic-in-tests            = true
+allow-print-in-tests            = true
+allow-unwrap-in-tests           = true
