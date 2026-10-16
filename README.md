@@ -21,12 +21,13 @@ converts into `Box<dyn Error>`, so `bail!` still works in a function that owes
 one.
 
 Formatting writes directly to the caller's buffer and holds no global state.
-`Display` always renders a compact one-line form, so a report can sit inside a
-log line or a larger message. `Debug` matches it by default. Under the `pretty`
-feature, `Debug` renders a multi-section form instead, which is what Rust prints
-for an error returned from `main`. Feature flags select the format at compile
-time, so there is no runtime formatter to register and no hook other code can
-silently replace.
+`Display` renders a compact one-line form, so a report can sit inside a log
+line or a larger message. `{:#}` renders only the error, without context or
+sources, for messages shown to users. `Debug` matches the compact form by
+default. Under the `pretty` feature, `Debug` renders a multi-section form
+instead, which is what Rust prints for an error returned from `main`. Feature
+flags select the format at compile time, so there is no runtime formatter to
+register and no hook other code can silently replace.
 
 ## Features
 

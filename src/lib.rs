@@ -532,6 +532,10 @@ impl Report {
 impl Display for Report {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        if f.alternate() {
+            return fmt::write_error(f, self.error());
+        }
+
         fmt::render_compact(self, f)
     }
 }

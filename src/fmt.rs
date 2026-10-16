@@ -1,9 +1,9 @@
 //! Formatting for [`core::fmt::Display`] and [`core::fmt::Debug`].
 //!
-//! `Display` always writes the compact form so a report can sit inside a larger
-//! message. `Debug` writes the multi-section form under the `pretty` feature.
-//! The formatter writes directly to the caller's buffer. It has no global
-//! state.
+//! `Display` writes the compact form so a report can sit inside a larger
+//! message, or only the error under `{:#}`. `Debug` writes the multi-section
+//! form under the `pretty` feature. The formatter writes directly to the
+//! caller's buffer. It has no global state.
 
 #[cfg(all(feature = "pretty", feature = "location"))]
 use std::iter;
@@ -115,7 +115,10 @@ fn render_spantrace(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt:
 }
 
 /// Writes the root error, with color when enabled.
-fn write_error(formatter: &mut fmt::Formatter<'_>, error: &(dyn Error + 'static)) -> fmt::Result {
+pub fn write_error(
+    formatter: &mut fmt::Formatter<'_>,
+    error: &(dyn Error + 'static),
+) -> fmt::Result {
     #[cfg(feature = "color")]
     {
         write!(formatter, "{}", error.red())
