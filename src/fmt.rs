@@ -84,16 +84,9 @@ pub fn render_pretty<E>(report: &Report<E>, formatter: &mut fmt::Formatter<'_>) 
 /// Writes the captured backtrace section.
 #[cfg(all(feature = "pretty", feature = "backtrace"))]
 fn render_backtrace<E>(report: &Report<E>, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-    use std::backtrace;
-
     let Some(backtrace) = report.backtrace() else {
         return Ok(());
     };
-
-    // `Backtrace::capture` returns a value when backtraces are off. Omit it.
-    if backtrace.status() != backtrace::BacktraceStatus::Captured {
-        return Ok(());
-    }
 
     formatter.write_str("\n\n")?;
     write_heading(formatter, "Backtrace")?;
