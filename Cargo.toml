@@ -1,6 +1,6 @@
 [package]
 name         = "misstep"
-version      = "0.3.0"
+version      = "0.4.0"
 edition      = "2024"
 rust-version = "1.95.0"
 description  = "Rust error reports with compile-time-selected formatting"
