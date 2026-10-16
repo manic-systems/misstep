@@ -67,6 +67,57 @@ pub trait ResultExt<T> {
     ///
     /// Returns the contained error as an erased [`Report`].
     fn erase(self) -> Result<T>;
+
+    /// Turns an error of type `R` into a value.
+    ///
+    /// Only the error at the start of the chain is checked, since only that
+    /// one can be taken by value.
+    ///
+    /// # Errors
+    ///
+    /// Returns any other error as an erased [`Report`] with its context.
+    #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
+    fn recover<R, F>(self, handler: F) -> Result<T>
+    where
+        Self: Sized,
+        R: Error + Send + Sync + 'static,
+        F: FnOnce(R) -> T,
+    {
+        match self.erase() {
+            Ok(value) => Ok(value),
+            Err(report) => report.downcast::<R>().map(handler),
+        }
+    }
+
+    /// Turns an error of type `R` into a value when `handler` returns one.
+    ///
+    /// Only the error at the start of the chain is checked, matching
+    /// [`ResultExt::recover`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the error as an erased [`Report`] with its context when it is
+    /// not an `R` or `handler` returns [`None`].
+    #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
+    fn recover_if<R, F>(self, handler: F) -> Result<T>
+    where
+        Self: Sized,
+        R: Error + 'static,
+        F: FnOnce(&R) -> Option<T>,
+    {
+        let report = match self.erase() {
+            Ok(value) => return Ok(value),
+            Err(report) => report,
+        };
+
+        report
+            .error()
+            .downcast_ref::<R>()
+            .and_then(handler)
+            .ok_or(report)
+    }
 }
 
 impl<T, E> ResultExt<T> for Result<T, E>

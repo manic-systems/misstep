@@ -126,6 +126,31 @@ fn configuration_or_default(path: &str) -> Result<String> {
 }
 ```
 
+Some errors aren't really failures, like a missing config file you'd rather
+treat as the defaults. `recover` is for those. Name the error type you expect
+and give it a handler that turns that error into a value, and anything else
+still comes back with its context attached. `recover_if` only borrows the
+error, so the handler gets a look first and can return `None` to let it
+through. Both check just the error at the start of the chain, since that's the
+one `recover` can take by value.
+
+```rust
+use std::{fs, io};
+
+use misstep::{Result, ResultExt};
+
+fn read_port(path: &str) -> Result<u16> {
+    let port = fs::read_to_string(path).context("reading the port")?;
+    Ok(port.trim().parse()?)
+}
+
+fn port_or_default(path: &str) -> Result<u16> {
+    read_port(path).recover_if::<io::Error, _>(|error| {
+        (error.kind() == io::ErrorKind::NotFound).then_some(8080)
+    })
+}
+```
+
 The `report!` macro builds a report from a message or an existing error. Because
 a report converts into `Box<dyn Error>`, a function returning a boxed error can
 still use `bail!` and `report!`:
