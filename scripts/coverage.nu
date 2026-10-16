@@ -1,6 +1,8 @@
 #!/usr/bin/env nu
 
 def main [--min: float = 67.0] {
+   $env.RUST_BACKTRACE = "1"
+
    let totals = (
       ^cargo llvm-cov --locked --all-features --branch --json --summary-only
       | from json

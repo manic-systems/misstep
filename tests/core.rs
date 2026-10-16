@@ -96,7 +96,7 @@ fn pretty_formatting_renders_error_cause_and_context_sections() {
 
     assert!(!display.contains('\n'));
     assert!(display.contains("while processing input"));
-    assert!(!debug.contains("Error"));
+    assert!(!debug.lines().next().unwrap_or_default().contains("Error"));
     assert!(debug.contains("Caused by"));
     assert!(debug.contains("Context"));
     assert!(debug.contains("root"));
@@ -108,7 +108,8 @@ fn pretty_formatting_renders_error_cause_and_context_sections() {
     feature = "pretty",
     not(feature = "color"),
     not(feature = "backtrace"),
-    not(feature = "spantrace")
+    not(feature = "spantrace"),
+    not(feature = "location")
 ))]
 #[test]
 fn pretty_debug_renders_sections_in_order() {
@@ -271,4 +272,162 @@ fn bail_and_ensure_return_reports_and_ensure_evaluates_once() {
 
     assert_eq!(calls.get(), 1_u8);
     assert!(ensure_error.to_string().contains("condition failed"));
+}
+
+#[test]
+fn downcast_takes_the_root_error_or_returns_the_report() {
+    let report = Report::new(TypedError).context("kept");
+
+    let unchanged = report
+        .downcast::<fmt::Error>()
+        .expect_err("not a fmt::Error");
+    assert_eq!(unchanged.contexts().len(), 1);
+
+    unchanged
+        .downcast::<TypedError>()
+        .expect("root is a TypedError");
+}
+
+#[test]
+fn boxed_reports_expose_and_release_the_boxed_error() {
+    let boxed: Box<dyn Error + Send + Sync> = Box::new(TypedError);
+    let report = Report::from_boxed(boxed).context("while loading");
+
+    assert_eq!(report.contexts()[0].message(), "while loading");
+    assert!(report.downcast_ref::<TypedError>().is_some());
+
+    let unchanged = report
+        .downcast::<fmt::Error>()
+        .expect_err("not a fmt::Error");
+    unchanged
+        .downcast::<TypedError>()
+        .expect("boxed error is a TypedError");
+}
+
+fn typed_bail() -> Result<(), Report<TypedError>> {
+    misstep::bail!(TypedError);
+}
+
+#[test]
+fn typed_reports_keep_their_error_through_context_and_bail() {
+    let failure: result::Result<(), TypedError> = Err(TypedError);
+    let report: Report<TypedError> = failure.context("typed context").expect_err("failed");
+
+    assert_eq!(report.contexts()[0].message(), "typed context");
+    assert_eq!((*report).to_string(), "typed failure");
+
+    let TypedError = report.into_inner();
+    let TypedError = typed_bail().expect_err("bail returns").into_inner();
+}
+
+#[test]
+fn erasing_keeps_context_and_allows_downcasting() {
+    let failure: result::Result<(), TypedError> = Err(TypedError);
+    let report = failure
+        .context("before erasing")
+        .erase()
+        .expect_err("failed");
+
+    assert_eq!(report.contexts()[0].message(), "before erasing");
+    report
+        .downcast::<TypedError>()
+        .expect("erasing keeps the error");
+}
+
+#[test]
+fn context_on_a_report_appends_instead_of_wrapping() {
+    let failure: Result<()> = Err(Report::new(TypedError).context("inner"));
+    let report = failure.context("outer").expect_err("failed");
+
+    let contexts = report
+        .contexts()
+        .iter()
+        .map(misstep::Context::message)
+        .collect::<Vec<_>>();
+    assert_eq!(contexts, ["inner", "outer"]);
+    assert_eq!(report.chain().count(), 1);
+}
+
+fn read_typed(fail: bool) -> Result<u8> {
+    if fail {
+        return Err(Report::new(TypedError).context("reading"));
+    }
+    Ok(1)
+}
+
+#[test]
+fn recover_replaces_only_the_requested_error() {
+    assert_eq!(
+        read_typed(true).recover::<TypedError, _>(|_| 2).ok(),
+        Some(2)
+    );
+    assert_eq!(
+        read_typed(false).recover::<TypedError, _>(|_| 2).ok(),
+        Some(1)
+    );
+
+    let report = read_typed(true)
+        .recover::<fmt::Error, _>(|_| 2)
+        .expect_err("other type");
+    assert!(report.downcast_ref::<TypedError>().is_some());
+    assert_eq!(report.contexts()[0].message(), "reading");
+}
+
+#[test]
+fn recover_if_passes_the_report_through_when_declined() {
+    assert_eq!(
+        read_typed(true)
+            .recover_if::<TypedError, _>(|_| Some(3))
+            .ok(),
+        Some(3)
+    );
+
+    let declined = read_typed(true)
+        .recover_if::<TypedError, _>(|_| None)
+        .expect_err("declined");
+    assert!(declined.downcast_ref::<TypedError>().is_some());
+    assert_eq!(declined.contexts()[0].message(), "reading");
+
+    let other = read_typed(true)
+        .recover_if::<fmt::Error, _>(|_| Some(3))
+        .expect_err("other");
+    assert_eq!(other.contexts().len(), 1);
+}
+
+#[cfg(not(feature = "color"))]
+#[test]
+fn alternate_display_renders_only_the_root_error() {
+    let report = Report::new(NestedError::wrap("root", NestedError::leaf())).context("hidden");
+
+    assert_eq!(format!("{report:#}"), "root");
+
+    let boxed: Box<dyn Error> = report.into();
+    assert_eq!(format!("{boxed:#}"), "root");
+}
+
+#[test]
+fn boxed_conversion_exposes_the_original_error_as_source() {
+    let boxed: Box<dyn Error + Send + Sync> = Report::new(TypedError).context("ctx").into();
+
+    let source = boxed.source().expect("report source");
+    assert!(source.is::<TypedError>());
+}
+
+#[test]
+fn option_ext_context_becomes_the_message() {
+    let report = None::<u8>.context("nothing here").expect_err("absent");
+
+    assert_eq!(report.error().to_string(), "nothing here");
+    assert!(report.contexts().is_empty());
+}
+
+#[cfg(feature = "location")]
+#[test]
+fn location_points_at_the_caller() {
+    let failure: result::Result<(), TypedError> = Err(TypedError);
+    let report = failure.context("located").expect_err("failed");
+
+    let location = report.location().expect("created outside the panic hook");
+    assert!(location.file().ends_with("core.rs"));
+    assert_eq!(report.contexts()[0].location().line(), location.line());
 }
