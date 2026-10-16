@@ -166,6 +166,35 @@ fn serve(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+`ReportError` wraps a report in a type that implements `Error`, so a report can
+be the source of your own error type. Its `Display` shows only the context and
+its `source` is the original error:
+
+```rust
+use std::{error::Error, fmt};
+
+use misstep::{ReportError, Result};
+
+#[derive(Debug)]
+struct StartupError(ReportError);
+
+impl fmt::Display for StartupError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("startup failed")
+    }
+}
+
+impl Error for StartupError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+fn start(load: impl FnOnce() -> Result<()>) -> Result<(), StartupError> {
+    load().map_err(|report| StartupError(report.into()))
+}
+```
+
 Printing a report renders its context with the newest context first, followed by
 the error and its source chain.
 
