@@ -906,7 +906,7 @@ fn capture_spantrace() -> Option<tracing_error::SpanTrace> {
     (spantrace.status() == tracing_error::SpanTraceStatus::CAPTURED).then_some(spantrace)
 }
 
-/// Installs a panic hook that writes a report before the prior hook runs.
+/// Installs a panic hook that writes a report in place of the prior hook.
 ///
 /// This function is available with the `panic-hook` feature. It changes the
 /// process-wide panic hook, so call it once during startup.
@@ -915,6 +915,11 @@ pub mod panic_hook {
     use alloc::{
         boxed::Box,
         string::String,
+    };
+    #[cfg(not(all(feature = "backtrace", feature = "pretty")))]
+    use std::backtrace::{
+        Backtrace,
+        BacktraceStatus,
     };
     use std::{
         io::{
@@ -925,23 +930,30 @@ pub mod panic_hook {
             self,
             PanicHookInfo,
         },
+        thread,
     };
 
-    /// Installs the reporting hook and then calls the hook it replaced.
+    /// Installs the reporting hook, dropping the one it replaces.
     #[inline]
     #[expect(
         clippy::use_debug,
         reason = "a panic prints the full report, which `pretty` renders through Debug"
     )]
     pub fn install() {
-        let previous = panic::take_hook();
-        panic::set_hook(Box::new(move |info| {
+        panic::set_hook(Box::new(|info| {
             let report = panic_report(info);
             let mut stderr = io::stderr().lock();
             drop(writeln!(stderr, "{report:?}"));
-            drop(stderr);
 
-            previous(info);
+            #[cfg(not(all(feature = "backtrace", feature = "pretty")))]
+            {
+                let backtrace = Backtrace::capture();
+                if backtrace.status() == BacktraceStatus::Captured {
+                    drop(writeln!(stderr, "\nBacktrace:\n{backtrace}"));
+                }
+            }
+
+            drop(stderr);
         }));
     }
 
@@ -956,11 +968,14 @@ pub mod panic_hook {
             |message| *message,
         );
 
+        let current = thread::current();
+        let name = current.name().unwrap_or("<unnamed>");
+
         let report = info.location().map_or_else(
-            || crate::Report::msg(format_args!("panic: {payload}")),
+            || crate::Report::msg(format_args!("panic in thread '{name}': {payload}")),
             |location| {
                 crate::Report::msg(format_args!(
-                    "panic at {}:{}:{}: {payload}",
+                    "panic in thread '{name}' at {}:{}:{}: {payload}",
                     location.file(),
                     location.line(),
                     location.column()

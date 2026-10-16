@@ -15,7 +15,7 @@ use std::{
 };
 
 #[test]
-fn panic_hook_reports_then_calls_the_previous_hook() {
+fn panic_hook_replaces_the_previous_hook() {
     let previous_calls = Arc::new(AtomicU8::new(0));
     let counter = Arc::clone(&previous_calls);
     panic::set_hook(Box::new(move |_| {
@@ -26,5 +26,5 @@ fn panic_hook_reports_then_calls_the_previous_hook() {
 
     assert!(panic::catch_unwind(|| panic!("string payload")).is_err());
     assert!(panic::catch_unwind(|| panic::panic_any(67_u8)).is_err());
-    assert_eq!(previous_calls.load(Ordering::SeqCst), 2);
+    assert_eq!(previous_calls.load(Ordering::SeqCst), 0);
 }

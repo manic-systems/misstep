@@ -42,8 +42,8 @@ register and no hook other code can silently replace.
 - `location` records where each report was created and where each context was
   added, and `pretty` prints them. It stores one pointer per entry instead of
   walking the stack, and works where backtraces do not, such as wasm.
-- `panic-hook` adds `install_panic_hook()`. The hook prints a report, then calls
-  the hook that was already installed.
+- `panic-hook` adds `install_panic_hook()`. The hook prints a report in place of
+  the hook that was already installed, so a panic prints once.
 
 > [!TIP]
 > Misstep stays small by gating its optional dependencies behind feature flags,
