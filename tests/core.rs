@@ -1,15 +1,26 @@
-use std::cell::Cell;
-use std::error::Error;
-use std::fmt::{self, Display, Formatter};
-use std::result;
+use std::{
+    cell::Cell,
+    error::Error,
+    fmt::{
+        self,
+        Display,
+        Formatter,
+    },
+    result,
+};
 
-use misstep::{OptionExt as _, Report, Result, ResultExt as _};
+use misstep::{
+    OptionExt as _,
+    Report,
+    Result,
+    ResultExt as _,
+};
 
 #[derive(Debug)]
 enum NestedError {
     Leaf,
     Wrap {
-        label: &'static str,
+        label:  &'static str,
         source: Box<Self>,
     },
 }

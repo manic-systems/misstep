@@ -1,16 +1,20 @@
 //! Errors with context that stays outside the source chain.
 //!
-//! [`Report`] owns an error and its context strings. Context changes the rendered
-//! report, not the source chain reached through [`Report::chain`].
+//! [`Report`] owns an error and its context strings. Context changes the
+//! rendered report, not the source chain reached through [`Report::chain`].
 //!
 //! `Report` deliberately does not implement [`Error`], which is what lets the
 //! blanket `From` conversion exist and makes `?` work on any error type.
 
-#[cfg(feature = "backtrace")]
-use std::backtrace;
+#[cfg(feature = "backtrace")] use std::backtrace;
 use std::{
     error::Error,
-    fmt::{Debug, Display, Formatter, Result as FmtResult},
+    fmt::{
+        Debug,
+        Display,
+        Formatter,
+        Result as FmtResult,
+    },
     iter::FusedIterator,
     result,
 };
@@ -28,7 +32,8 @@ pub trait ResultExt<T> {
     ///
     /// # Errors
     ///
-    /// Converts the contained error into a [`Report`] and returns it with the context.
+    /// Converts the contained error into a [`Report`] and returns it with the
+    /// context.
     fn context<C>(self, context: C) -> Result<T>
     where
         C: Display;
@@ -37,7 +42,8 @@ pub trait ResultExt<T> {
     ///
     /// # Errors
     ///
-    /// Converts the contained error into a [`Report`] and returns it with the context.
+    /// Converts the contained error into a [`Report`] and returns it with the
+    /// context.
     fn with_context<C, F>(self, context: F) -> Result<T>
     where
         C: Display,
@@ -102,7 +108,8 @@ pub trait OptionExt<T> {
     ///
     /// # Errors
     ///
-    /// Returns a [`Report`] carrying the closure's message when the option is [`None`].
+    /// Returns a [`Report`] carrying the closure's message when the option is
+    /// [`None`].
     fn with_context<C, F>(self, context: F) -> Result<T>
     where
         C: Display,
@@ -130,17 +137,17 @@ impl<T> OptionExt<T> for Option<T> {
 
 /// An error and the context collected while handling it.
 ///
-/// Context does not wrap the error. Downcasts and [`Report::chain`] see only the
-/// original error and its sources.
+/// Context does not wrap the error. Downcasts and [`Report::chain`] see only
+/// the original error and its sources.
 ///
 /// This type does not implement [`Error`]. Returning it from a function that
 /// owes a `Box<dyn Error>` still works through the [`From`] impl below.
 #[must_use]
 pub struct Report {
     /// The original error.
-    error: Box<dyn Error + Send + Sync + 'static>,
+    error:     Box<dyn Error + Send + Sync + 'static>,
     /// Context strings in insertion order.
-    contexts: Vec<String>,
+    contexts:  Vec<String>,
     #[cfg(feature = "backtrace")]
     /// The captured backtrace when capture succeeded.
     backtrace: Option<Box<backtrace::Backtrace>>,
@@ -202,8 +209,8 @@ impl Report {
 
     /// Adds context returned by `context`.
     ///
-    /// This method calls the closure immediately. [`ResultExt::with_context`] calls
-    /// its closure only for an error result.
+    /// This method calls the closure immediately. [`ResultExt::with_context`]
+    /// calls its closure only for an error result.
     #[inline]
     pub fn with_context<C, F>(self, context: F) -> Self
     where
@@ -383,8 +390,14 @@ fn capture_spantrace() -> Option<Box<tracing_error::SpanTrace>> {
 #[cfg(feature = "panic-hook")]
 pub mod panic_hook {
     use std::{
-        io::{self, Write as _},
-        panic::{self, PanicHookInfo},
+        io::{
+            self,
+            Write as _,
+        },
+        panic::{
+            self,
+            PanicHookInfo,
+        },
     };
 
     /// Installs the reporting hook and then calls the hook it replaced.

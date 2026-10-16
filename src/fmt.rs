@@ -2,12 +2,15 @@
 //!
 //! `Display` always writes the compact form so a report can sit inside a larger
 //! message. `Debug` writes the multi-section form under the `pretty` feature.
-//! The formatter writes directly to the caller's buffer. It has no global state.
+//! The formatter writes directly to the caller's buffer. It has no global
+//! state.
 
-use std::{error::Error, fmt};
+use std::{
+    error::Error,
+    fmt,
+};
 
-#[cfg(feature = "color")]
-use yansi::Paint as _;
+#[cfg(feature = "color")] use yansi::Paint as _;
 
 use crate::Report;
 

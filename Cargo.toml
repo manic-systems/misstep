@@ -1,35 +1,28 @@
 [package]
-name = "misstep"
-version = "0.3.0"
-edition = "2024"
+name         = "misstep"
+version      = "0.3.0"
+edition      = "2024"
 rust-version = "1.95.0"
-description = "Rust error reports with compile-time-selected formatting"
-license = "EUPL-1.2"
-repository = "https://git.notashelf.dev/notashelf/misstep"
-keywords = [
-  "error",
-  "error-handling",
-  "error-reporting",
-  "backtrace",
-  "tracing",
-]
-categories = ["rust-patterns"]
-autobins = false
-readme = true
+description  = "Rust error reports with compile-time-selected formatting"
+license      = "EUPL-1.2"
+repository   = "https://git.notashelf.dev/notashelf/misstep"
+keywords     = [ "error", "error-handling", "error-reporting", "backtrace", "tracing" ]
+categories   = [ "rust-patterns" ]
+autobins     = false
+readme       = true
 
 
 [features]
-default    = []
-color      = ["dep:yansi"]
-backtrace  = []
-spantrace  = ["dep:tracing-error"]
-pretty     = []
-panic-hook = []
+default    = [  ]
+color      = [ "dep:yansi" ]
+backtrace  = [  ]
+spantrace  = [ "dep:tracing-error" ]
+pretty     = [  ]
+panic-hook = [  ]
 
 [dependencies]
-yansi         = { version = "1.0.1", default-features = false, optional = true }
-tracing-error = { version = "0.2.1", default-features = false, optional = true }
-
+yansi         = { default-features = false, optional = true, version = "1.0.1" }
+tracing-error = { default-features = false, optional = true, version = "0.2.1" }
 
 [lints.rust]
 unknown_lints = "allow"
