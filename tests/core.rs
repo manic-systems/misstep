@@ -431,3 +431,26 @@ fn location_points_at_the_caller() {
     assert!(location.file().ends_with("core.rs"));
     assert_eq!(report.contexts()[0].location().line(), location.line());
 }
+
+#[test]
+fn boxed_reports_show_each_error_once_and_unbox_back() {
+    let report = Report::new(NestedError::wrap("root", NestedError::leaf())).context("saving");
+    let boxed: Box<dyn Error + Send + Sync> = report.into();
+
+    let mut chain = vec![boxed.to_string()];
+    let mut source = boxed.source();
+    while let Some(error) = source {
+        chain.push(error.to_string());
+        source = error.source();
+    }
+    assert_eq!(chain, ["saving", "root", "leaf"]);
+
+    let unboxed = Report::from_boxed(boxed).context("retrying");
+    let contexts = unboxed
+        .contexts()
+        .iter()
+        .map(misstep::Context::message)
+        .collect::<Vec<_>>();
+    assert_eq!(contexts, ["saving", "retrying"]);
+    assert_eq!(unboxed.chain().count(), 2);
+}

@@ -403,6 +403,11 @@ impl Report {
     #[inline]
     #[cfg_attr(feature = "location", track_caller)]
     pub fn from_boxed(error: Box<dyn Error + Send + Sync + 'static>) -> Self {
+        let foreign = match error.downcast::<BoxedReport>() {
+            Ok(boxed) => return boxed.0,
+            Err(foreign) => foreign,
+        };
+
         let vtable = const {
             &Vtable {
                 error: boxed_error_of,
@@ -412,7 +417,7 @@ impl Report {
         };
 
         // SAFETY: Both vtable entries are written for `BoxedError`.
-        unsafe { Self::from_inner(BoxedError(error), vtable) }
+        unsafe { Self::from_inner(BoxedError(foreign), vtable) }
     }
 
     /// Builds a report from a displayable message.
@@ -721,46 +726,60 @@ where
     }
 }
 
-impl<E> From<Report<E>> for Box<dyn Error + Send + Sync + 'static>
-where
-    E: Send + Sync + 'static,
-{
+impl<E> From<Report<E>> for Box<dyn Error + Send + Sync + 'static> {
     #[inline]
     fn from(report: Report<E>) -> Self {
-        Box::new(BoxedReport(report))
+        Box::new(BoxedReport(report.erase()))
     }
 }
 
-impl<E> From<Report<E>> for Box<dyn Error + 'static>
-where
-    E: Send + Sync + 'static,
-{
+impl<E> From<Report<E>> for Box<dyn Error + 'static> {
     #[inline]
     fn from(report: Report<E>) -> Self {
-        Box::new(BoxedReport(report))
+        Box::new(BoxedReport(report.erase()))
     }
 }
 
 /// Gives a [`Report`] an [`Error`] impl for the boxing conversions.
-struct BoxedReport<E>(Report<E>);
+///
+/// Its `Display` prints the contexts and leaves the error to `source`. Anything
+/// that walks the chain, like another report wrapping this box, would print
+/// the error twice otherwise.
+struct BoxedReport(Report);
 
-impl<E> Debug for BoxedReport<E> {
+impl Debug for BoxedReport {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         Debug::fmt(&self.0, f)
     }
 }
 
-impl<E> Display for BoxedReport<E> {
+impl Display for BoxedReport {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        Display::fmt(&self.0, f)
+        let mut contexts = self.0.contexts().iter().rev();
+
+        let Some(newest) = contexts.next().filter(|_| !f.alternate()) else {
+            return Display::fmt(self.0.error(), f);
+        };
+
+        Display::fmt(newest, f)?;
+
+        for context in contexts {
+            write!(f, ": {context}")?;
+        }
+
+        Ok(())
     }
 }
 
-impl<E> Error for BoxedReport<E> {
+impl Error for BoxedReport {
     #[inline]
     fn source(&self) -> Option<&(dyn Error + 'static)> {
+        if self.0.contexts().is_empty() {
+            return self.0.error().source();
+        }
+
         Some(self.0.error())
     }
 }
