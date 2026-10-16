@@ -59,6 +59,17 @@ jobs:
         rustup component add miri rust-src &&
         cargo miri test --locked --all-features
 
+  coverage:
+    name: Coverage
+    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@4d2d4a73ac933d23f00fb7a17dd39569f8e1c1dc # v2.3.2
+    with:
+      os: ubuntu-latest
+      flake-check: false
+      rust-toolchain: nightly
+      setup-command: rustup component add llvm-tools-preview
+      test: true
+      test-command: nix shell nixpkgs#cargo-llvm-cov nixpkgs#nushell --command nu scripts/coverage.nu
+
   actions:
     name: Actions Lint
     uses: manic-systems/workflows/.github/workflows/actions-lint.yml@4d2d4a73ac933d23f00fb7a17dd39569f8e1c1dc # v2.3.2
@@ -70,6 +81,7 @@ jobs:
       - checks
       - msrv
       - miri
+      - coverage
       - actions
     runs-on: ubuntu-latest
     steps:
