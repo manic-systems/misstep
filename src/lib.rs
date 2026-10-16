@@ -17,6 +17,7 @@ use std::{
         Result as FmtResult,
     },
     iter::FusedIterator,
+    mem::ManuallyDrop,
     ptr::NonNull,
     result,
 };
@@ -234,6 +235,8 @@ struct Vtable {
     error: unsafe fn(NonNull<Header>) -> NonNull<dyn Error + Send + Sync + 'static>,
     /// Drops the error and the header and frees the allocation.
     drop:  unsafe fn(NonNull<Header>),
+    /// Whether the allocation is an `Inner<BoxedError>`.
+    boxed: bool,
 }
 
 /// A caller's boxed error, stored as-is since `Box<dyn Error>` is not an
@@ -302,6 +305,7 @@ impl Report {
             &Vtable {
                 error: error_of::<E>,
                 drop:  drop_inner::<E>,
+                boxed: false,
             }
         };
 
@@ -327,6 +331,7 @@ impl Report {
             &Vtable {
                 error: boxed_error_of,
                 drop:  drop_inner::<BoxedError>,
+                boxed: true,
             }
         };
 
@@ -447,6 +452,43 @@ impl Report {
         Chain {
             current: Some(self.error()),
         }
+    }
+
+    /// Takes the error out if it is a `T`.
+    ///
+    /// Only the error at the start of the chain can be taken by value. Use
+    /// [`Report::downcast_ref`] to search its sources.
+    ///
+    /// # Errors
+    ///
+    /// Returns the report unchanged when the error is not a `T`.
+    #[inline]
+    pub fn downcast<T>(self) -> Result<T, Self>
+    where
+        T: Error + Send + Sync + 'static,
+    {
+        if !self.error().is::<T>() {
+            return Err(self);
+        }
+
+        let boxed = self.header().vtable.boxed;
+        let header = ManuallyDrop::new(self).header;
+
+        if boxed {
+            // SAFETY: `boxed` is only set by `Report::from_boxed`, which
+            // allocates an `Inner<BoxedError>`. The report went into
+            // `ManuallyDrop`, so this box is the allocation's only owner.
+            let inner = unsafe { Box::from_raw(header.cast::<Inner<BoxedError>>().as_ptr()) };
+            let error = Box::into_raw(inner.error.0).cast::<T>();
+            // SAFETY: `is::<T>` passed above, so this box holds a `T`.
+            return Ok(*unsafe { Box::from_raw(error) });
+        }
+
+        // SAFETY: Every other constructor allocates an `Inner<E>`, and
+        // `is::<T>` passed above, so `E` is `T`. `ManuallyDrop` leaves this
+        // box as the only owner here too.
+        let inner = unsafe { Box::from_raw(header.cast::<Inner<T>>().as_ptr()) };
+        Ok(inner.error)
     }
 
     /// Finds `T` in the source chain.
