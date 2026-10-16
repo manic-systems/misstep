@@ -12,7 +12,5 @@
     devShells = forEachSystem (system: {
       default = pkgsForEach.${system}.callPackage ./nix/shell.nix {};
     });
-
-    hydraJobs = self.packages;
   };
 }
