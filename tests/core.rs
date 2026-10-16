@@ -1,3 +1,8 @@
+#[cfg(feature = "color")]
+use std::io::{
+    self,
+    IsTerminal as _,
+};
 use std::{
     cell::Cell,
     error::Error,
@@ -125,11 +130,15 @@ fn pretty_debug_renders_sections_in_order() {
 
 #[cfg(feature = "color")]
 #[test]
-fn color_formatting_uses_ansi() {
+fn color_formatting_skips_ansi_off_a_terminal() {
+    if io::stderr().is_terminal() {
+        return;
+    }
+
     let report = Report::msg("failure");
 
-    assert!(format!("{report}").contains("\x1b["));
-    assert!(format!("{report:?}").contains("\x1b["));
+    assert!(!format!("{report}").contains("\x1b["));
+    assert!(!format!("{report:?}").contains("\x1b["));
 }
 
 #[test]

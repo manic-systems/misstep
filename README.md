@@ -31,7 +31,8 @@ register and no hook other code can silently replace.
 
 ## Features
 
-- `color` adds ANSI color with `yansi`.
+- `color` adds ANSI color with `yansi` when stderr is a terminal, honoring
+  `NO_COLOR` and `CLICOLOR`.
 - `backtrace` captures `std::backtrace::Backtrace` when a report is created.
 - `spantrace` captures `tracing_error::SpanTrace` when a report is created.
 - `pretty` renders `Debug` as error, cause, context, and available trace

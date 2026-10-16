@@ -5,6 +5,11 @@
 //! form under the `pretty` feature. The formatter writes directly to the
 //! caller's buffer. It has no global state.
 
+#[cfg(feature = "color")]
+use std::io::{
+    self,
+    IsTerminal as _,
+};
 #[cfg(all(feature = "pretty", feature = "location"))]
 use std::iter;
 use std::{
@@ -12,9 +17,21 @@ use std::{
     fmt,
 };
 
-#[cfg(feature = "color")] use yansi::Paint as _;
+#[cfg(feature = "color")]
+use yansi::{
+    Condition,
+    Paint as _,
+};
 
 use crate::Report;
+
+/// Colors only on a terminal stderr that `NO_COLOR` and `CLICOLOR` allow.
+///
+/// `&` instead of `&&` keeps branch coverage from depending on whether the
+/// tests run on a terminal.
+#[cfg(feature = "color")]
+const COLOR: Condition =
+    Condition::from(|| io::stderr().is_terminal() & Condition::clicolor() & Condition::no_color());
 
 /// Writes the compact report format.
 pub fn render_compact<E>(report: &Report<E>, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -114,7 +131,7 @@ pub fn write_error(
 ) -> fmt::Result {
     #[cfg(feature = "color")]
     {
-        write!(formatter, "{}", error.red())
+        write!(formatter, "{}", error.red().whenever(COLOR))
     }
 
     #[cfg(not(feature = "color"))]
@@ -126,7 +143,7 @@ pub fn write_error(
 fn write_heading(formatter: &mut fmt::Formatter<'_>, heading: &str) -> fmt::Result {
     #[cfg(feature = "color")]
     {
-        write!(formatter, "{}", heading.bold())
+        write!(formatter, "{}", heading.bold().whenever(COLOR))
     }
 
     #[cfg(not(feature = "color"))]
