@@ -19,12 +19,19 @@ macro_rules! report {
 
 /// Returns a report from the current function.
 ///
-/// The macro accepts the same forms as [`report!`]. It formats arguments only
-/// on this path.
+/// Takes the same forms as [`report!`]. A message builds an erased report
+/// before converting, but an error goes through [`From`] straight into the
+/// function's error type, so a typed report keeps its error type.
 #[macro_export]
 macro_rules! bail {
-    ($($arguments:tt)+) => {
-        return ::core::result::Result::Err($crate::report!($($arguments)+).into())
+    ($message:literal $(,)?) => {
+        return ::core::result::Result::Err($crate::report!($message).into())
+    };
+    ($format:literal, $($arguments:tt)+) => {
+        return ::core::result::Result::Err($crate::report!($format, $($arguments)+).into())
+    };
+    ($error:expr $(,)?) => {
+        return ::core::result::Result::Err(::core::convert::From::from($error))
     };
 }
 

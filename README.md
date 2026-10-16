@@ -89,6 +89,7 @@ fn parse_port(port: &str) -> Result<u16> {
     port.trim()
         .parse::<u16>()
         .with_context(|| format!("failed to parse {port:?}"))
+        .erase()
 }
 
 fn find_port(configuration: &str) -> Result<u16> {
@@ -97,6 +98,31 @@ fn find_port(configuration: &str) -> Result<u16> {
         .map(|(_, port)| port)
         .context("no port in configuration")?;
     parse_port(port)
+}
+```
+
+A report keeps the type of the error it was built from, so calling `context` on
+a `Result<T, io::Error>` gives you a `Result<T, Report<io::Error>>`. The report
+derefs to its error, so `report.kind()` below calls straight through, and
+`into_inner` hands the error back by value. `?` turns a typed report into a
+plain `Report` for you, but returning one directly skips that conversion.
+`parse_port` above calls `erase` for that reason.
+
+```rust
+use std::{fs, io};
+
+use misstep::{Report, Result, ResultExt};
+
+fn read_configuration(path: &str) -> Result<String, Report<io::Error>> {
+    fs::read_to_string(path).context("reading configuration")
+}
+
+fn configuration_or_default(path: &str) -> Result<String> {
+    match read_configuration(path) {
+        Ok(configuration) => Ok(configuration),
+        Err(report) if report.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        Err(report) => Err(report.into()),
+    }
 }
 ```
 

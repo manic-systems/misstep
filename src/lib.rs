@@ -3,6 +3,9 @@
 //! [`Report`] owns an error and its context strings. Context changes the
 //! rendered report, not the source chain reached through [`Report::chain`].
 //!
+//! A `Report<E>` keeps the concrete error type so callers can match on it,
+//! and converts into the erased `Report` through `?`.
+//!
 //! `Report` deliberately does not implement [`Error`], which is what lets the
 //! blanket `From` conversion exist and makes `?` work on any error type.
 
@@ -17,7 +20,9 @@ use std::{
         Result as FmtResult,
     },
     iter::FusedIterator,
+    marker::PhantomData,
     mem::ManuallyDrop,
+    ops::Deref,
     ptr::NonNull,
     result,
 };
@@ -31,13 +36,16 @@ pub type Result<T, E = Report> = result::Result<T, E>;
 
 /// Adds context to a [`Result`].
 pub trait ResultExt<T> {
+    /// The error type the resulting [`Report`] keeps.
+    type Error;
+
     /// Adds context to an error result.
     ///
     /// # Errors
     ///
-    /// Converts the contained error into a [`Report`] and returns it with the
-    /// context.
-    fn context<C>(self, context: C) -> Result<T>
+    /// Converts the contained error into a [`Report`] of the same type and
+    /// returns it with the context.
+    fn context<C>(self, context: C) -> Result<T, Report<Self::Error>>
     where
         C: Display;
 
@@ -45,45 +53,66 @@ pub trait ResultExt<T> {
     ///
     /// # Errors
     ///
-    /// Converts the contained error into a [`Report`] and returns it with the
-    /// context.
-    fn with_context<C, F>(self, context: F) -> Result<T>
+    /// Converts the contained error into a [`Report`] of the same type and
+    /// returns it with the context.
+    fn with_context<C, F>(self, context: F) -> Result<T, Report<Self::Error>>
     where
         C: Display,
         F: FnOnce() -> C;
+
+    /// Forgets the error type, for returning from a function that owes an
+    /// erased [`Report`].
+    ///
+    /// # Errors
+    ///
+    /// Returns the contained error as an erased [`Report`].
+    fn erase(self) -> Result<T>;
 }
 
 impl<T, E> ResultExt<T> for Result<T, E>
 where
     E: Error + Send + Sync + 'static,
 {
+    type Error = E;
+
     #[inline]
     #[cfg_attr(feature = "location", track_caller)]
-    fn context<C>(self, context: C) -> Result<T>
+    fn context<C>(self, context: C) -> Result<T, Report<E>>
     where
         C: Display,
     {
         match self {
             Ok(value) => Ok(value),
-            Err(error) => Err(Report::new(error).context(context)),
+            Err(error) => Err(Report::wrap(error).context(context)),
         }
     }
 
     #[inline]
     #[cfg_attr(feature = "location", track_caller)]
-    fn with_context<C, F>(self, context: F) -> Result<T>
+    fn with_context<C, F>(self, context: F) -> Result<T, Report<E>>
     where
         C: Display,
         F: FnOnce() -> C,
     {
         match self {
             Ok(value) => Ok(value),
-            Err(error) => Err(Report::new(error).with_context(context)),
+            Err(error) => Err(Report::wrap(error).with_context(context)),
+        }
+    }
+
+    #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
+    fn erase(self) -> Result<T> {
+        match self {
+            Ok(value) => Ok(value),
+            Err(error) => Err(Report::new(error)),
         }
     }
 }
 
-impl<T> ResultExt<T> for Result<T, Report> {
+impl<T, E> ResultExt<T> for Result<T, Report<E>> {
+    type Error = E;
+
     #[inline]
     #[cfg_attr(feature = "location", track_caller)]
     fn context<C>(self, context: C) -> Self
@@ -107,6 +136,11 @@ impl<T> ResultExt<T> for Result<T, Report> {
             Ok(value) => Ok(value),
             Err(report) => Err(report.with_context(context)),
         }
+    }
+
+    #[inline]
+    fn erase(self) -> Result<T> {
+        self.map_err(Report::erase)
     }
 }
 
@@ -170,25 +204,35 @@ impl<T> OptionExt<T> for Option<T> {
     }
 }
 
+/// The error type of a [`Report`] that may hold any error.
+#[derive(Debug)]
+pub enum Dynamic {}
+
 /// An error and the context collected while handling it.
 ///
 /// Context does not wrap the error. Downcasts and [`Report::chain`] see only
 /// the original error and its sources.
 ///
+/// `Report<E>` holds an `E` and dereferences to it. The default, `Report`,
+/// holds any error and supports runtime downcasting instead.
+///
 /// This type does not implement [`Error`]. Returning it from a function that
 /// owes a `Box<dyn Error>` still works through the [`From`] impl below.
 #[must_use]
-pub struct Report {
+pub struct Report<E = Dynamic> {
     /// The header of an [`Inner`] whose error type the header's vtable knows.
     /// One thin pointer keeps `Result<T, Report>` returnable in registers.
     header: NonNull<Header>,
+    /// The error type, which the report owns through `header`.
+    error:  PhantomData<E>,
 }
 
-// SAFETY: Every constructor requires an `E: Send + Sync` error, and `Header`
-// is `Send + Sync`, so the allocation moves and shares like a `Box`.
-unsafe impl Send for Report {}
+// SAFETY: The allocation holds a `Header`, which is `Send + Sync`, and an
+// error that is too. A typed report holds its `E`, and the erased constructors
+// only accept `Send + Sync` errors.
+unsafe impl<E> Send for Report<E> where E: Send + Sync {}
 // SAFETY: See the `Send` impl.
-unsafe impl Sync for Report {}
+unsafe impl<E> Sync for Report<E> where E: Send + Sync {}
 
 const _: () = {
     const fn assert_send_sync<T>()
@@ -281,7 +325,7 @@ unsafe fn drop_inner<E>(header: NonNull<Header>) {
     drop(unsafe { Box::from_raw(header.cast::<Inner<E>>().as_ptr()) });
 }
 
-impl Drop for Report {
+impl<E> Drop for Report<E> {
     #[inline]
     fn drop(&mut self) {
         let drop_inner = self.header().vtable.drop;
@@ -294,23 +338,14 @@ impl Drop for Report {
 }
 
 impl Report {
-    /// Stores an error in a new report.
+    /// Stores an error in a new report that may hold any error.
     #[inline]
     #[cfg_attr(feature = "location", track_caller)]
     pub fn new<E>(error: E) -> Self
     where
         E: Error + Send + Sync + 'static,
     {
-        let vtable = const {
-            &Vtable {
-                error: error_of::<E>,
-                drop:  drop_inner::<E>,
-                boxed: false,
-            }
-        };
-
-        // SAFETY: Both vtable entries are instantiated for `E`.
-        unsafe { Self::from_inner(error, vtable) }
+        Report::wrap(error).into()
     }
 
     /// Stores a boxed error in a new report.
@@ -329,16 +364,99 @@ impl Report {
         unsafe { Self::from_inner(BoxedError(error), vtable) }
     }
 
-    /// Allocates an `Inner<E>` and keeps a pointer to its header.
+    /// Builds a report from a displayable message.
+    #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
+    pub fn msg<D>(message: D) -> Self
+    where
+        D: Display,
+    {
+        Self::new(OwnedMessageError(message.to_string()))
+    }
+
+    /// Takes the error out if it is a `T`.
+    ///
+    /// Only the error at the start of the chain can be taken by value. Use
+    /// [`Report::downcast_ref`] to search its sources.
+    ///
+    /// # Errors
+    ///
+    /// Returns the report unchanged when the error is not a `T`.
+    #[inline]
+    pub fn downcast<T>(self) -> Result<T, Self>
+    where
+        T: Error + Send + Sync + 'static,
+    {
+        if !self.error().is::<T>() {
+            return Err(self);
+        }
+
+        let boxed = self.header().vtable.boxed;
+        let header = ManuallyDrop::new(self).header;
+
+        if boxed {
+            // SAFETY: `boxed` is only set by `Report::from_boxed`, which
+            // allocates an `Inner<BoxedError>`. The report went into
+            // `ManuallyDrop`, so this box is the allocation's only owner.
+            let inner = unsafe { Box::from_raw(header.cast::<Inner<BoxedError>>().as_ptr()) };
+            let error = Box::into_raw(inner.error.0).cast::<T>();
+            // SAFETY: `is::<T>` passed above, so this box holds a `T`.
+            return Ok(*unsafe { Box::from_raw(error) });
+        }
+
+        // SAFETY: Every other constructor allocates an `Inner<E>`, and
+        // `is::<T>` passed above, so `E` is `T`. `ManuallyDrop` leaves this
+        // box as the only owner here too.
+        let inner = unsafe { Box::from_raw(header.cast::<Inner<T>>().as_ptr()) };
+        Ok(inner.error)
+    }
+}
+
+impl<E> Report<E>
+where
+    E: Error + Send + Sync + 'static,
+{
+    /// Stores an error in a new report of its own type.
+    #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
+    fn wrap(error: E) -> Self {
+        let vtable = const {
+            &Vtable {
+                error: error_of::<E>,
+                drop:  drop_inner::<E>,
+                boxed: false,
+            }
+        };
+
+        // SAFETY: Both vtable entries are instantiated for `E`.
+        unsafe { Self::from_inner(error, vtable) }
+    }
+
+    /// Takes the error out, dropping the context.
+    #[inline]
+    #[must_use]
+    pub fn into_inner(self) -> E {
+        let header = ManuallyDrop::new(self).header;
+        // SAFETY: Only `Report::wrap` builds a `Report<E>` for an error type,
+        // and it allocates an `Inner<E>`. `ManuallyDrop` keeps
+        // `Report::drop` from freeing it again.
+        let inner = unsafe { Box::from_raw(header.cast::<Inner<E>>().as_ptr()) };
+        inner.error
+    }
+}
+
+impl<E> Report<E> {
+    /// Allocates an `Inner<T>` and keeps a pointer to its header.
     ///
     /// # Safety
     ///
-    /// Every entry of `vtable` must be written for an `Inner<E>`.
+    /// Every entry of `vtable` must be written for an `Inner<T>`, and `T` must
+    /// be `E` unless `E` is [`Dynamic`].
     #[inline]
     #[cfg_attr(feature = "location", track_caller)]
-    unsafe fn from_inner<E>(error: E, vtable: &'static Vtable) -> Self
+    unsafe fn from_inner<T>(error: T, vtable: &'static Vtable) -> Self
     where
-        E: Send + Sync + 'static,
+        T: Send + Sync + 'static,
     {
         let inner = Box::new(Inner {
             header: Header {
@@ -356,6 +474,16 @@ impl Report {
 
         Self {
             header: NonNull::from(Box::leak(inner)).cast(),
+            error:  PhantomData,
+        }
+    }
+
+    /// Forgets the error type.
+    #[inline]
+    pub fn erase(self) -> Report {
+        Report {
+            header: ManuallyDrop::new(self).header,
+            error:  PhantomData,
         }
     }
 
@@ -372,16 +500,6 @@ impl Report {
         // SAFETY: The report owns a live allocation that starts with a header,
         // and `&mut self` makes this borrow unique.
         unsafe { self.header.as_mut() }
-    }
-
-    /// Builds a report from a displayable message.
-    #[inline]
-    #[cfg_attr(feature = "location", track_caller)]
-    pub fn msg<D>(message: D) -> Self
-    where
-        D: Display,
-    {
-        Self::new(OwnedMessageError(message.to_string()))
     }
 
     /// Adds context without changing the source chain.
@@ -444,43 +562,6 @@ impl Report {
         }
     }
 
-    /// Takes the error out if it is a `T`.
-    ///
-    /// Only the error at the start of the chain can be taken by value. Use
-    /// [`Report::downcast_ref`] to search its sources.
-    ///
-    /// # Errors
-    ///
-    /// Returns the report unchanged when the error is not a `T`.
-    #[inline]
-    pub fn downcast<T>(self) -> Result<T, Self>
-    where
-        T: Error + Send + Sync + 'static,
-    {
-        if !self.error().is::<T>() {
-            return Err(self);
-        }
-
-        let boxed = self.header().vtable.boxed;
-        let header = ManuallyDrop::new(self).header;
-
-        if boxed {
-            // SAFETY: `boxed` is only set by `Report::from_boxed`, which
-            // allocates an `Inner<BoxedError>`. The report went into
-            // `ManuallyDrop`, so this box is the allocation's only owner.
-            let inner = unsafe { Box::from_raw(header.cast::<Inner<BoxedError>>().as_ptr()) };
-            let error = Box::into_raw(inner.error.0).cast::<T>();
-            // SAFETY: `is::<T>` passed above, so this box holds a `T`.
-            return Ok(*unsafe { Box::from_raw(error) });
-        }
-
-        // SAFETY: Every other constructor allocates an `Inner<E>`, and
-        // `is::<T>` passed above, so `E` is `T`. `ManuallyDrop` leaves this
-        // box as the only owner here too.
-        let inner = unsafe { Box::from_raw(header.cast::<Inner<T>>().as_ptr()) };
-        Ok(inner.error)
-    }
-
     /// Finds `T` in the source chain.
     #[inline]
     #[must_use]
@@ -519,7 +600,21 @@ impl Report {
     }
 }
 
-impl Display for Report {
+impl<E> Deref for Report<E>
+where
+    E: Error + Send + Sync + 'static,
+{
+    type Target = E;
+
+    #[inline]
+    fn deref(&self) -> &E {
+        // SAFETY: Only `Report::wrap` builds a `Report<E>` for an error type,
+        // and it allocates an `Inner<E>` that `self` keeps alive.
+        unsafe { &(*self.header.cast::<Inner<E>>().as_ptr()).error }
+    }
+}
+
+impl<E> Display for Report<E> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         if f.alternate() {
@@ -530,7 +625,7 @@ impl Display for Report {
     }
 }
 
-impl Debug for Report {
+impl<E> Debug for Report<E> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         #[cfg(feature = "pretty")]
@@ -554,32 +649,65 @@ where
     }
 }
 
-impl From<Report> for Box<dyn Error + Send + Sync + 'static> {
+impl<E> From<E> for Report<E>
+where
+    E: Error + Send + Sync + 'static,
+{
     #[inline]
-    fn from(report: Report) -> Self {
+    #[cfg_attr(feature = "location", track_caller)]
+    fn from(error: E) -> Self {
+        Self::wrap(error)
+    }
+}
+
+impl<E> From<Report<E>> for Report
+where
+    E: Error + Send + Sync + 'static,
+{
+    #[inline]
+    fn from(report: Report<E>) -> Self {
+        report.erase()
+    }
+}
+
+impl<E> From<Report<E>> for Box<dyn Error + Send + Sync + 'static>
+where
+    E: Send + Sync + 'static,
+{
+    #[inline]
+    fn from(report: Report<E>) -> Self {
         Box::new(BoxedReport(report))
     }
 }
 
-impl From<Report> for Box<dyn Error + 'static> {
+impl<E> From<Report<E>> for Box<dyn Error + 'static>
+where
+    E: Send + Sync + 'static,
+{
     #[inline]
-    fn from(report: Report) -> Self {
+    fn from(report: Report<E>) -> Self {
         Box::new(BoxedReport(report))
     }
 }
 
 /// Gives a [`Report`] an [`Error`] impl for the boxing conversions.
-#[derive(Debug)]
-struct BoxedReport(Report);
+struct BoxedReport<E>(Report<E>);
 
-impl Display for BoxedReport {
+impl<E> Debug for BoxedReport<E> {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        Debug::fmt(&self.0, f)
+    }
+}
+
+impl<E> Display for BoxedReport<E> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         Display::fmt(&self.0, f)
     }
 }
 
-impl Error for BoxedReport {
+impl<E> Error for BoxedReport<E> {
     #[inline]
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(self.0.error())

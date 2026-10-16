@@ -17,7 +17,7 @@ use std::{
 use crate::Report;
 
 /// Writes the compact report format.
-pub fn render_compact(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+pub fn render_compact<E>(report: &Report<E>, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
     // The newest context describes the outermost operation.
     for context in report.contexts().iter().rev() {
         write!(formatter, "{context}: ")?;
@@ -34,7 +34,7 @@ pub fn render_compact(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fm
 
 /// Writes the multi-section report format.
 #[cfg(feature = "pretty")]
-pub fn render_pretty(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+pub fn render_pretty<E>(report: &Report<E>, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
     write_error(formatter, report.error())?;
 
     let mut causes = report.chain().skip(1).peekable();
@@ -83,7 +83,7 @@ pub fn render_pretty(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt
 
 /// Writes the captured backtrace section.
 #[cfg(all(feature = "pretty", feature = "backtrace"))]
-fn render_backtrace(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn render_backtrace<E>(report: &Report<E>, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
     use std::backtrace;
 
     let Some(backtrace) = report.backtrace() else {
@@ -103,7 +103,7 @@ fn render_backtrace(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt:
 
 /// Writes the captured span trace section.
 #[cfg(all(feature = "pretty", feature = "spantrace"))]
-fn render_spantrace(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn render_spantrace<E>(report: &Report<E>, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
     let Some(spantrace) = report.spantrace() else {
         return Ok(());
     };
