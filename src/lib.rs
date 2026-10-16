@@ -9,9 +9,21 @@
 //! `Report` deliberately does not implement [`Error`], which is what lets the
 //! blanket `From` conversion exist and makes `?` work on any error type.
 
-#[cfg(feature = "backtrace")] use std::backtrace;
-#[cfg(feature = "location")] use std::panic::Location;
-use std::{
+#![no_std]
+
+extern crate alloc;
+#[cfg(feature = "std")] extern crate std;
+
+use alloc::{
+    boxed::Box,
+    string::{
+        String,
+        ToString as _,
+    },
+    vec::Vec,
+};
+#[cfg(feature = "location")] use core::panic::Location;
+use core::{
     convert::Infallible,
     error::Error,
     fmt::{
@@ -27,6 +39,7 @@ use std::{
     ptr::NonNull,
     result,
 };
+#[cfg(feature = "backtrace")] use std::backtrace;
 
 mod fmt;
 #[macro_use]
@@ -899,6 +912,10 @@ fn capture_spantrace() -> Option<tracing_error::SpanTrace> {
 /// process-wide panic hook, so call it once during startup.
 #[cfg(feature = "panic-hook")]
 pub mod panic_hook {
+    use alloc::{
+        boxed::Box,
+        string::String,
+    };
     use std::{
         io::{
             self,

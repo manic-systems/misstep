@@ -5,16 +5,16 @@
 //! form under the `pretty` feature. The formatter writes directly to the
 //! caller's buffer. It has no global state.
 
+#[cfg(all(feature = "pretty", feature = "location"))]
+use core::iter;
+use core::{
+    error::Error,
+    fmt,
+};
 #[cfg(feature = "color")]
 use std::io::{
     self,
     IsTerminal as _,
-};
-#[cfg(all(feature = "pretty", feature = "location"))]
-use std::iter;
-use std::{
-    error::Error,
-    fmt,
 };
 
 #[cfg(feature = "color")]

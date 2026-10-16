@@ -13,12 +13,13 @@ readme       = true
 
 
 [features]
-default    = [  ]
-color      = [ "dep:yansi", "yansi/detect-env" ]
-backtrace  = [  ]
-spantrace  = [ "dep:tracing-error" ]
+default    = [ "std" ]
+std        = [  ]
+color      = [ "std", "dep:yansi", "yansi/detect-env" ]
+backtrace  = [ "std" ]
+spantrace  = [ "std", "dep:tracing-error" ]
 pretty     = [  ]
-panic-hook = [  ]
+panic-hook = [ "std" ]
 location   = [  ]
 
 [dependencies]

@@ -31,6 +31,8 @@ register and no hook other code can silently replace.
 
 ## Features
 
+- `std`, on by default, is needed by `color`, `backtrace`, `spantrace`, and
+  `panic-hook`. Without it misstep builds as `no_std` with `alloc`.
 - `color` adds ANSI color with `yansi` when stderr is a terminal, honoring
   `NO_COLOR` and `CLICOLOR`.
 - `backtrace` captures `std::backtrace::Backtrace` when a report is created.
@@ -45,9 +47,9 @@ register and no hook other code can silently replace.
 
 > [!TIP]
 > Misstep stays small by gating its optional dependencies behind feature flags,
-> so every feature is opt-in and the default feature set pulls in no
-> dependencies at all. `pretty` works without `color`. `backtrace` and
-> `spantrace` capture their data without `pretty`, but do not print it.
+> so the default feature set pulls in no dependencies at all. `pretty` works
+> without `color`. `backtrace` and `spantrace` capture their data without
+> `pretty`, but do not print it.
 
 ## Usage
 
