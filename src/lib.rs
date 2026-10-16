@@ -651,8 +651,8 @@ impl<'error> Iterator for Chain<'error> {
 
 impl FusedIterator for Chain<'_> {}
 
-#[derive(Debug)]
 /// An owned string exposed as an error.
+#[derive(Debug)]
 struct OwnedMessageError(String);
 
 impl Display for OwnedMessageError {
@@ -664,15 +664,15 @@ impl Display for OwnedMessageError {
 
 impl Error for OwnedMessageError {}
 
-#[cfg(feature = "backtrace")]
 /// Captures an enabled backtrace.
+#[cfg(feature = "backtrace")]
 fn capture_backtrace() -> Option<backtrace::Backtrace> {
     let backtrace = backtrace::Backtrace::capture();
     (backtrace.status() == backtrace::BacktraceStatus::Captured).then_some(backtrace)
 }
 
-#[cfg(feature = "spantrace")]
 /// Captures an enabled span trace.
+#[cfg(feature = "spantrace")]
 fn capture_spantrace() -> Option<tracing_error::SpanTrace> {
     let spantrace = tracing_error::SpanTrace::capture();
     (spantrace.status() == tracing_error::SpanTraceStatus::CAPTURED).then_some(spantrace)
