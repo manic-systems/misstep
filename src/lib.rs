@@ -688,7 +688,7 @@ impl<E> Display for Report<E> {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         if f.alternate() {
-            return fmt::write_error(f, self.error());
+            return Display::fmt(self.error(), f);
         }
 
         fmt::render_compact(self, f)

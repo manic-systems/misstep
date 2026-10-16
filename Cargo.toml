@@ -15,7 +15,7 @@ readme       = true
 [features]
 default    = [ "std" ]
 std        = [  ]
-color      = [ "std", "dep:yansi", "yansi/detect-env" ]
+color      = [ "std", "pretty", "dep:yansi", "yansi/detect-env" ]
 backtrace  = [ "std" ]
 spantrace  = [ "std", "dep:tracing-error" ]
 pretty     = [  ]

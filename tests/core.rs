@@ -72,7 +72,6 @@ impl Display for TypedError {
 
 impl Error for TypedError {}
 
-#[cfg(not(feature = "color"))]
 #[test]
 fn display_renders_compact_report_with_newest_context_first() {
     let report = Report::new(NestedError::wrap("root", NestedError::leaf()))
@@ -82,7 +81,7 @@ fn display_renders_compact_report_with_newest_context_first() {
     assert_eq!(format!("{report}"), "outer: inner: root: leaf");
 }
 
-#[cfg(all(not(feature = "pretty"), not(feature = "color")))]
+#[cfg(not(feature = "pretty"))]
 #[test]
 fn debug_matches_compact_display_without_pretty_formatting() {
     let report = Report::msg("failure").context("while processing");
@@ -137,7 +136,6 @@ fn color_formatting_skips_ansi_off_a_terminal() {
 
     let report = Report::msg("failure");
 
-    assert!(!format!("{report}").contains("\x1b["));
     assert!(!format!("{report:?}").contains("\x1b["));
 }
 
@@ -403,7 +401,6 @@ fn recover_if_passes_the_report_through_when_declined() {
     assert_eq!(other.contexts().len(), 1);
 }
 
-#[cfg(not(feature = "color"))]
 #[test]
 fn alternate_display_renders_only_the_root_error() {
     let report = Report::new(NestedError::wrap("root", NestedError::leaf())).context("hidden");

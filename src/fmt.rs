@@ -5,12 +5,10 @@
 //! form under the `pretty` feature. The formatter writes directly to the
 //! caller's buffer. It has no global state.
 
+#[cfg(feature = "pretty")] use core::error::Error;
+use core::fmt;
 #[cfg(all(feature = "pretty", feature = "location"))]
 use core::iter;
-use core::{
-    error::Error,
-    fmt,
-};
 #[cfg(feature = "color")]
 use std::io::{
     self,
@@ -40,7 +38,7 @@ pub fn render_compact<E>(report: &Report<E>, formatter: &mut fmt::Formatter<'_>)
         write!(formatter, "{context}: ")?;
     }
 
-    write_error(formatter, report.error())?;
+    write!(formatter, "{}", report.error())?;
 
     for error in report.chain().skip(1) {
         write!(formatter, ": {error}")?;
@@ -125,10 +123,8 @@ fn render_spantrace<E>(report: &Report<E>, formatter: &mut fmt::Formatter<'_>) -
 }
 
 /// Writes the root error, with color when enabled.
-pub fn write_error(
-    formatter: &mut fmt::Formatter<'_>,
-    error: &(dyn Error + 'static),
-) -> fmt::Result {
+#[cfg(feature = "pretty")]
+fn write_error(formatter: &mut fmt::Formatter<'_>, error: &(dyn Error + 'static)) -> fmt::Result {
     #[cfg(feature = "color")]
     {
         write!(formatter, "{}", error.red().whenever(COLOR))

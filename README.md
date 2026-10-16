@@ -33,8 +33,9 @@ register and no hook other code can silently replace.
 
 - `std`, on by default, is needed by `color`, `backtrace`, `spantrace`, and
   `panic-hook`. Without it misstep builds as `no_std` with `alloc`.
-- `color` adds ANSI color with `yansi` when stderr is a terminal, honoring
-  `NO_COLOR` and `CLICOLOR`.
+- `color` turns on `pretty` and colors its `Debug` form with `yansi` when
+  stderr is a terminal, honoring `NO_COLOR` and `CLICOLOR`. `Display` never
+  colors, so `to_string()` is always plain text.
 - `backtrace` captures `std::backtrace::Backtrace` when a report is created.
 - `spantrace` captures `tracing_error::SpanTrace` when a report is created.
 - `pretty` renders `Debug` as error, cause, context, and available trace
