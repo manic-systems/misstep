@@ -19,6 +19,7 @@ backtrace  = [  ]
 spantrace  = [ "dep:tracing-error" ]
 pretty     = [  ]
 panic-hook = [  ]
+location   = [  ]
 
 [dependencies]
 yansi         = { default-features = false, optional = true, version = "1.0.1" }

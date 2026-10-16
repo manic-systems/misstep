@@ -7,6 +7,7 @@
 //! blanket `From` conversion exist and makes `?` work on any error type.
 
 #[cfg(feature = "backtrace")] use std::backtrace;
+#[cfg(feature = "location")] use std::panic::Location;
 use std::{
     error::Error,
     fmt::{
@@ -56,39 +57,55 @@ where
     E: Error + Send + Sync + 'static,
 {
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     fn context<C>(self, context: C) -> Result<T>
     where
         C: Display,
     {
-        self.map_err(|error| Report::from_error(error).context(context))
+        match self {
+            Ok(value) => Ok(value),
+            Err(error) => Err(Report::new(error).context(context)),
+        }
     }
 
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     fn with_context<C, F>(self, context: F) -> Result<T>
     where
         C: Display,
         F: FnOnce() -> C,
     {
-        self.map_err(|error| Report::from_error(error).with_context(context))
+        match self {
+            Ok(value) => Ok(value),
+            Err(error) => Err(Report::new(error).with_context(context)),
+        }
     }
 }
 
 impl<T> ResultExt<T> for Result<T, Report> {
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     fn context<C>(self, context: C) -> Self
     where
         C: Display,
     {
-        self.map_err(|report| report.context(context))
+        match self {
+            Ok(value) => Ok(value),
+            Err(report) => Err(report.context(context)),
+        }
     }
 
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     fn with_context<C, F>(self, context: F) -> Self
     where
         C: Display,
         F: FnOnce() -> C,
     {
-        self.map_err(|report| report.with_context(context))
+        match self {
+            Ok(value) => Ok(value),
+            Err(report) => Err(report.with_context(context)),
+        }
     }
 }
 
@@ -119,20 +136,36 @@ pub trait OptionExt<T> {
 
 impl<T> OptionExt<T> for Option<T> {
     #[inline]
+    #[expect(
+        clippy::option_if_let_else,
+        reason = "a closure would hide the caller from track_caller"
+    )]
+    #[cfg_attr(feature = "location", track_caller)]
     fn context<C>(self, context: C) -> Result<T>
     where
         C: Display,
     {
-        self.ok_or_else(|| Report::msg(context))
+        match self {
+            Some(value) => Ok(value),
+            None => Err(Report::msg(context)),
+        }
     }
 
     #[inline]
+    #[expect(
+        clippy::option_if_let_else,
+        reason = "a closure would hide the caller from track_caller"
+    )]
+    #[cfg_attr(feature = "location", track_caller)]
     fn with_context<C, F>(self, context: F) -> Result<T>
     where
         C: Display,
         F: FnOnce() -> C,
     {
-        self.ok_or_else(|| Report::msg(context()))
+        match self {
+            Some(value) => Ok(value),
+            None => Err(Report::msg(context())),
+        }
     }
 }
 
@@ -169,8 +202,12 @@ const _: () = {
 struct Header {
     /// Operations that need the concrete error type.
     vtable:    &'static Vtable,
-    /// Context strings in insertion order.
-    contexts:  Vec<String>,
+    /// Context in insertion order.
+    contexts:  Vec<Context>,
+    /// [`None`] for panic hook reports, whose message already names the panic
+    /// site.
+    #[cfg(feature = "location")]
+    location:  Option<&'static Location<'static>>,
     /// The captured backtrace when capture succeeded.
     #[cfg(feature = "backtrace")]
     backtrace: Option<backtrace::Backtrace>,
@@ -256,6 +293,7 @@ impl Drop for Report {
 impl Report {
     /// Stores an error in a new report.
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     pub fn new<E>(error: E) -> Self
     where
         E: Error + Send + Sync + 'static,
@@ -273,6 +311,7 @@ impl Report {
 
     /// Calls [`Report::new`].
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     pub fn from_error<E>(error: E) -> Self
     where
         E: Error + Send + Sync + 'static,
@@ -282,6 +321,7 @@ impl Report {
 
     /// Stores a boxed error in a new report.
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     pub fn from_boxed(error: Box<dyn Error + Send + Sync + 'static>) -> Self {
         let vtable = const {
             &Vtable {
@@ -300,6 +340,7 @@ impl Report {
     ///
     /// Every entry of `vtable` must be written for an `Inner<E>`.
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     unsafe fn from_inner<E>(error: E, vtable: &'static Vtable) -> Self
     where
         E: Send + Sync + 'static,
@@ -308,6 +349,8 @@ impl Report {
             header: Header {
                 vtable,
                 contexts: Vec::new(),
+                #[cfg(feature = "location")]
+                location: Some(Location::caller()),
                 #[cfg(feature = "backtrace")]
                 backtrace: capture_backtrace(),
                 #[cfg(feature = "spantrace")]
@@ -338,6 +381,7 @@ impl Report {
 
     /// Builds a report from a displayable message.
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     pub fn msg<D>(message: D) -> Self
     where
         D: Display,
@@ -347,11 +391,16 @@ impl Report {
 
     /// Adds context without changing the source chain.
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     pub fn context<D>(mut self, context: D) -> Self
     where
         D: Display,
     {
-        self.header_mut().contexts.push(context.to_string());
+        self.header_mut().contexts.push(Context {
+            message:                               context.to_string(),
+            #[cfg(feature = "location")]
+            location:                              Location::caller(),
+        });
         self
     }
 
@@ -360,6 +409,7 @@ impl Report {
     /// This method calls the closure immediately. [`ResultExt::with_context`]
     /// calls its closure only for an error result.
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     pub fn with_context<C, F>(self, context: F) -> Self
     where
         C: Display,
@@ -380,12 +430,12 @@ impl Report {
         unsafe { error.as_ref() }
     }
 
-    /// Returns context strings in the order callers added them.
+    /// Returns context in the order callers added it.
     ///
     /// Formatters print the newest context first.
     #[inline]
     #[must_use]
-    pub fn contexts(&self) -> &[String] {
+    pub fn contexts(&self) -> &[Context] {
         &self.header().contexts
     }
 
@@ -407,6 +457,17 @@ impl Report {
         T: Error + 'static,
     {
         self.chain().find_map(|error| error.downcast_ref::<T>())
+    }
+
+    /// Returns where the report was created.
+    ///
+    /// Reports from the panic hook have no location here, since the panic
+    /// message already carries it.
+    #[cfg(feature = "location")]
+    #[inline]
+    #[must_use]
+    pub const fn location(&self) -> Option<&'static Location<'static>> {
+        self.header().location
     }
 
     /// Returns the captured backtrace, if capture was enabled and succeeded.
@@ -451,6 +512,7 @@ where
     E: Error + Send + Sync + 'static,
 {
     #[inline]
+    #[cfg_attr(feature = "location", track_caller)]
     fn from(error: E) -> Self {
         Self::new(error)
     }
@@ -485,6 +547,40 @@ impl Error for BoxedReport {
     #[inline]
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(self.0.error())
+    }
+}
+
+/// A context message attached to a [`Report`].
+#[derive(Debug)]
+pub struct Context {
+    /// The rendered message.
+    message:  String,
+    /// Where the context was added.
+    #[cfg(feature = "location")]
+    location: &'static Location<'static>,
+}
+
+impl Context {
+    /// Returns the rendered message.
+    #[inline]
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Returns where the context was added.
+    #[cfg(feature = "location")]
+    #[inline]
+    #[must_use]
+    pub const fn location(&self) -> &'static Location<'static> {
+        self.location
+    }
+}
+
+impl Display for Context {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(&self.message)
     }
 }
 
@@ -582,7 +678,7 @@ pub mod panic_hook {
             |message| *message,
         );
 
-        info.location().map_or_else(
+        let report = info.location().map_or_else(
             || crate::Report::msg(format_args!("panic: {payload}")),
             |location| {
                 crate::Report::msg(format_args!(
@@ -592,7 +688,17 @@ pub mod panic_hook {
                     location.column()
                 ))
             },
-        )
+        );
+
+        #[cfg(feature = "location")]
+        {
+            let mut unlocated = report;
+            unlocated.header_mut().location = None;
+            unlocated
+        }
+
+        #[cfg(not(feature = "location"))]
+        report
     }
 }
 

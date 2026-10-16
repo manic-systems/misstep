@@ -5,6 +5,8 @@
 //! The formatter writes directly to the caller's buffer. It has no global
 //! state.
 
+#[cfg(all(feature = "pretty", feature = "location"))]
+use std::iter;
 use std::{
     error::Error,
     fmt,
@@ -53,7 +55,21 @@ pub fn render_pretty(report: &Report, formatter: &mut fmt::Formatter<'_>) -> fmt
 
         for (index, context) in report.contexts().iter().rev().enumerate() {
             write!(formatter, "\n  {index}: {context}")?;
+
+            #[cfg(feature = "location")]
+            {
+                let width =
+                    iter::successors(Some(index), |rest| (*rest >= 10).then(|| rest / 10)).count();
+                write!(formatter, "\n  {:width$}  at {}", "", context.location())?;
+            }
         }
+    }
+
+    #[cfg(feature = "location")]
+    if let Some(location) = report.location() {
+        formatter.write_str("\n\n")?;
+        write_heading(formatter, "Location")?;
+        write!(formatter, ":\n  {location}")?;
     }
 
     #[cfg(feature = "backtrace")]
