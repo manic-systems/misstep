@@ -12,6 +12,7 @@
 #[cfg(feature = "backtrace")] use std::backtrace;
 #[cfg(feature = "location")] use std::panic::Location;
 use std::{
+    convert::Infallible,
     error::Error,
     fmt::{
         Debug,
@@ -257,7 +258,7 @@ impl<T> OptionExt<T> for Option<T> {
 
 /// The error type of a [`Report`] that may hold any error.
 #[derive(Debug)]
-pub enum Dynamic {}
+pub struct Dynamic(Infallible);
 
 /// An error and the context collected while handling it.
 ///
@@ -490,7 +491,7 @@ where
 
     /// Takes the error out, dropping the context.
     #[inline]
-    #[must_use]
+    #[must_use = "this returns the error and drops everything else"]
     pub fn into_inner(self) -> E {
         let header = ManuallyDrop::new(self).header;
         // SAFETY: Only `Report::wrap` builds a `Report<E>` for an error type,
@@ -589,7 +590,7 @@ impl<E> Report<E> {
 
     /// Returns the error at the start of the source chain.
     #[inline]
-    #[must_use]
+    #[must_use = "this only reads the report"]
     pub fn error(&self) -> &(dyn Error + 'static) {
         let error_of = self.header().vtable.error;
         // SAFETY: The vtable matches the allocation.
@@ -603,7 +604,7 @@ impl<E> Report<E> {
     ///
     /// Formatters print the newest context first.
     #[inline]
-    #[must_use]
+    #[must_use = "this only reads the report"]
     pub fn contexts(&self) -> &[Context] {
         &self.header().contexts
     }
@@ -620,7 +621,7 @@ impl<E> Report<E> {
 
     /// Finds `T` in the source chain.
     #[inline]
-    #[must_use]
+    #[must_use = "this only reads the report"]
     pub fn downcast_ref<T>(&self) -> Option<&T>
     where
         T: Error + 'static,
@@ -634,7 +635,7 @@ impl<E> Report<E> {
     /// message already carries it.
     #[cfg(feature = "location")]
     #[inline]
-    #[must_use]
+    #[must_use = "this only reads the report"]
     pub const fn location(&self) -> Option<&'static Location<'static>> {
         self.header().location
     }
@@ -642,7 +643,7 @@ impl<E> Report<E> {
     /// Returns the captured backtrace, if capture was enabled and succeeded.
     #[cfg(feature = "backtrace")]
     #[inline]
-    #[must_use]
+    #[must_use = "this only reads the report"]
     pub const fn backtrace(&self) -> Option<&backtrace::Backtrace> {
         self.header().backtrace.as_ref()
     }
@@ -650,7 +651,7 @@ impl<E> Report<E> {
     /// Returns the captured span trace, if one exists.
     #[cfg(feature = "spantrace")]
     #[inline]
-    #[must_use]
+    #[must_use = "this only reads the report"]
     pub const fn spantrace(&self) -> Option<&tracing_error::SpanTrace> {
         self.header().spantrace.as_ref()
     }
@@ -823,7 +824,7 @@ pub struct Context {
 impl Context {
     /// Returns the rendered message.
     #[inline]
-    #[must_use]
+    #[must_use = "this only reads the context"]
     pub fn message(&self) -> &str {
         &self.message
     }
@@ -831,7 +832,7 @@ impl Context {
     /// Returns where the context was added.
     #[cfg(feature = "location")]
     #[inline]
-    #[must_use]
+    #[must_use = "this only reads the context"]
     pub const fn location(&self) -> &'static Location<'static> {
         self.location
     }
