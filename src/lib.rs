@@ -313,16 +313,6 @@ impl Report {
         unsafe { Self::from_inner(error, vtable) }
     }
 
-    /// Calls [`Report::new`].
-    #[inline]
-    #[cfg_attr(feature = "location", track_caller)]
-    pub fn from_error<E>(error: E) -> Self
-    where
-        E: Error + Send + Sync + 'static,
-    {
-        Self::new(error)
-    }
-
     /// Stores a boxed error in a new report.
     #[inline]
     #[cfg_attr(feature = "location", track_caller)]

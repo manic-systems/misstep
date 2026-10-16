@@ -13,7 +13,7 @@ macro_rules! report {
         $crate::Report::msg(::core::format_args!($format, $($arguments)+))
     };
     ($error:expr $(,)?) => {
-        $crate::Report::from_error($error)
+        $crate::Report::new($error)
     };
 }
 
