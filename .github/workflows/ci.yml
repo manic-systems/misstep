@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-26.04-arm, macos-latest]
-    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@4d2d4a73ac933d23f00fb7a17dd39569f8e1c1dc # v2.3.2
+    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@ec457510b197b2eeb8b2ea2d182f31e3ed7157bd # v2.3.3
     with:
       os: ${{ matrix.os }}
       flake-check: false
@@ -38,7 +38,7 @@ jobs:
 
   msrv:
     name: MSRV
-    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@4d2d4a73ac933d23f00fb7a17dd39569f8e1c1dc # v2.3.2
+    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@ec457510b197b2eeb8b2ea2d182f31e3ed7157bd # v2.3.3
     with:
       os: ubuntu-latest
       install-nix: false
@@ -49,7 +49,7 @@ jobs:
 
   miri:
     name: Miri
-    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@4d2d4a73ac933d23f00fb7a17dd39569f8e1c1dc # v2.3.2
+    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@ec457510b197b2eeb8b2ea2d182f31e3ed7157bd # v2.3.3
     with:
       os: ubuntu-latest
       install-nix: false
@@ -62,7 +62,7 @@ jobs:
 
   coverage:
     name: Coverage
-    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@4d2d4a73ac933d23f00fb7a17dd39569f8e1c1dc # v2.3.2
+    uses: manic-systems/workflows/.github/workflows/rust-checks.yml@ec457510b197b2eeb8b2ea2d182f31e3ed7157bd # v2.3.3
     with:
       os: ubuntu-latest
       flake-check: false
@@ -73,7 +73,7 @@ jobs:
 
   actions:
     name: Actions Lint
-    uses: manic-systems/workflows/.github/workflows/actions-lint.yml@4d2d4a73ac933d23f00fb7a17dd39569f8e1c1dc # v2.3.2
+    uses: manic-systems/workflows/.github/workflows/actions-lint.yml@ec457510b197b2eeb8b2ea2d182f31e3ed7157bd # v2.3.3
 
   required:
     name: Required Checks
